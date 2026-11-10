@@ -51,7 +51,7 @@ func (a *api) setDestination(w http.ResponseWriter, r *http.Request) {
 			map[string]string{"address": "must be a TRON (TRC20) address starting with T"})
 		return
 	}
-	if contract, ok := a.network.USDTContract(); ok && contract == address {
+	if tron.IsKnownUSDTContract(address) {
 		writeErrorWithFields(w, r, a.logger, http.StatusUnprocessableEntity, "validation_failed", "some fields are invalid",
 			map[string]string{"address": "this is the USDT token contract, not your Cleva deposit address"})
 		return

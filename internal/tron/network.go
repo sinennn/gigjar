@@ -28,6 +28,10 @@ func (n Network) IsSimulated() bool {
 	return n == NetworkSimulated
 }
 
+func IsKnownUSDTContract(address Address) bool {
+	return address == mainnetUSDTContract || address == nileUSDTContract
+}
+
 func (n Network) USDTContract() (Address, bool) {
 	switch n {
 	case NetworkMainnet:

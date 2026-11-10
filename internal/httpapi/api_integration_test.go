@@ -15,22 +15,20 @@ import (
 	"testing"
 	"time"
 
-	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"gigjar/internal/database"
+	"gigjar/internal/chain/simulated"
 	"gigjar/internal/httpapi"
 	"gigjar/internal/identity"
 	"gigjar/internal/jars"
-	"gigjar/internal/ledger"
 	"gigjar/internal/paylinks"
 	"gigjar/internal/testdb"
 	"gigjar/internal/tron"
 	"gigjar/internal/usdt"
+	"gigjar/internal/watcher"
 )
 
-const clevaAddress = "TXYZopYRdj2D9XRtbG411XZZ3kM5VkAeBf"
+const clevaAddress = "TSUe9LcY9ny9AXnR46ZSHxYiSE6neyhRXA"
 
 type client struct {
 	t      *testing.T
@@ -146,8 +144,12 @@ func TestStudentJourney(t *testing.T) {
 	}
 
 	jar := student.expect(http.StatusOK, http.MethodGet, "/v1/jar", nil)
-	if jar["network"] != "simulated" || jar["address"] != nil || jar["cleva_destination_set"] != false {
+	jarAddress, _ := jar["address"].(string)
+	if jar["network"] != "simulated" || len(jarAddress) != 34 || jar["cleva_destination_set"] != false {
 		t.Fatalf("fresh jar = %v", jar)
+	}
+	if balances := jar["balances"].(map[string]any); balances["pending"] != "0.000000" {
+		t.Fatalf("fresh jar balances = %v", balances)
 	}
 	if jar["settlement_threshold"] != "11.000000" || jar["remaining_until_settlement"] != "11.000000" {
 		t.Fatalf("fresh jar thresholds = %v", jar)
@@ -157,6 +159,11 @@ func TestStudentJourney(t *testing.T) {
 	invalid := student.expect(http.StatusUnprocessableEntity, http.MethodPut, "/v1/wallet/cleva", map[string]string{"address": "0xdAC17F958D2ee523a2206206994597C13D831ec7"})
 	if errorCode(invalid) != "validation_failed" {
 		t.Fatalf("invalid destination = %v", invalid)
+	}
+	for _, contract := range []string{"TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t", "TXYZopYRdj2D9XRtbG411XZZ3kM5VkAeBf"} {
+		if errorCode(student.expect(http.StatusUnprocessableEntity, http.MethodPut, "/v1/wallet/cleva", map[string]string{"address": contract})) != "validation_failed" {
+			t.Fatalf("USDT contract %s accepted as a destination", contract)
+		}
 	}
 	student.expect(http.StatusOK, http.MethodPut, "/v1/wallet/cleva", map[string]string{"address": clevaAddress})
 	destination := student.expect(http.StatusOK, http.MethodGet, "/v1/wallet/cleva", nil)
@@ -204,19 +211,10 @@ func TestStudentJourney(t *testing.T) {
 	}
 
 	public := newClient(t, server)
-	notReady := public.expect(http.StatusServiceUnavailable, http.MethodGet, "/v1/public/pay/"+reference, nil)
-	if errorCode(notReady) != "jar_not_ready" {
-		t.Fatalf("unprovisioned jar = %v", notReady)
-	}
-	if _, err := pool.Exec(context.Background(),
-		`UPDATE jars SET address = $2, provisioned_at = now() WHERE user_id = $1`,
-		userID, "TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t"); err != nil {
-		t.Fatal(err)
-	}
 	instructions := public.expect(http.StatusOK, http.MethodGet, "/v1/public/pay/"+reference, nil)
 	token := instructions["token"].(map[string]any)
-	if instructions["amount"] != "4.000000" || instructions["recipient_display_name"] != "Ada" ||
-		instructions["pay_to_address"] != "TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t" || token["standard"] != "TRC20" || token["contract_address"] != nil {
+	if instructions["pending_payment_observed"] != false || instructions["amount"] != "4.000000" || instructions["recipient_display_name"] != "Ada" ||
+		instructions["pay_to_address"] != jarAddress || token["standard"] != "TRC20" || token["contract_address"] != nil {
 		t.Fatalf("public instructions = %v", instructions)
 	}
 	if _, leaked := instructions["email"]; leaked {
@@ -224,24 +222,88 @@ func TestStudentJourney(t *testing.T) {
 	}
 	public.expect(http.StatusNotFound, http.MethodGet, "/v1/public/pay/doesnotexist", nil)
 
-	for _, amount := range []string{"4", "3", "5"} {
-		err := database.WithTx(context.Background(), pool, func(tx pgx.Tx) error {
-			_, err := ledger.RecordDeposit(context.Background(), tx, uuid.MustParse(userID), uuid.New(), usdt.MustParse(amount))
-			return err
-		})
-		if err != nil {
+	chainWatcher := watcher.New(pool, simulated.NewProvider(pool), slog.New(slog.NewTextHandler(io.Discard, nil)), watcher.DefaultConfig())
+	runWatcher := func() {
+		t.Helper()
+		if _, err := pool.Exec(context.Background(), `UPDATE jar_watch_state SET next_poll_at = now()`); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := chainWatcher.DiscoverOnce(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := pool.Exec(context.Background(), `UPDATE incoming_transfers SET next_check_at = now() WHERE status = 'pending'`); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := chainWatcher.ConfirmOnce(context.Background()); err != nil {
 			t.Fatal(err)
 		}
 	}
+
+	sent := public.expect(http.StatusCreated, http.MethodPost, "/v1/simulator/transfers",
+		map[string]any{"reference": reference, "amount": "4", "confirmation_delay_seconds": 3600})
+	if sent["simulated"] != true || sent["to_address"] != jarAddress {
+		t.Fatalf("simulated transfer = %v", sent)
+	}
+	runWatcher()
+	jar = student.expect(http.StatusOK, http.MethodGet, "/v1/jar", nil)
+	if balances := jar["balances"].(map[string]any); balances["pending"] != "4.000000" || balances["available"] != "0.000000" {
+		t.Fatalf("jar with pending payment = %v", balances)
+	}
+	incoming := student.expect(http.StatusOK, http.MethodGet, "/v1/incoming-transfers", nil)
+	if items := incoming["items"].([]any); len(items) != 1 || items[0].(map[string]any)["status"] != "pending" || items[0].(map[string]any)["tx_hash"] != sent["tx_hash"] {
+		t.Fatalf("incoming transfers while pending = %v", incoming)
+	}
+	if pendingPage := public.expect(http.StatusOK, http.MethodGet, "/v1/public/pay/"+reference, nil); pendingPage["pending_payment_observed"] != true || pendingPage["status"] != "open" {
+		t.Fatalf("public page while pending = %v", pendingPage)
+	}
+
+	if _, err := pool.Exec(context.Background(), `UPDATE simulated_chain_transfers SET solidifies_at = created_at`); err != nil {
+		t.Fatal(err)
+	}
+	for _, amount := range []string{"3", "5"} {
+		public.expect(http.StatusCreated, http.MethodPost, "/v1/simulator/transfers",
+			map[string]any{"to_address": jarAddress, "amount": amount, "confirmation_delay_seconds": 0})
+	}
+	runWatcher()
+
 	jar = student.expect(http.StatusOK, http.MethodGet, "/v1/jar", nil)
 	balances := jar["balances"].(map[string]any)
-	if balances["available"] != "12.000000" || jar["remaining_until_settlement"] != "0.000000" || jar["cleva_destination_set"] != true {
+	if balances["available"] != "12.000000" || balances["pending"] != "0.000000" || jar["remaining_until_settlement"] != "0.000000" || jar["cleva_destination_set"] != true {
 		t.Fatalf("funded jar = %v", jar)
 	}
+	paid := student.expect(http.StatusOK, http.MethodGet, "/v1/payment-links/"+link["id"].(string), nil)
+	linkTransfers := paid["transfers"].([]any)
+	if paid["status"] != "paid" || paid["amount_received"] != "4.000000" || paid["paid_at"] == nil || len(linkTransfers) != 1 {
+		t.Fatalf("paid link = %v", paid)
+	}
+	if linkTransfers[0].(map[string]any)["status"] != "confirmed" || linkTransfers[0].(map[string]any)["tx_hash"] != sent["tx_hash"] {
+		t.Fatalf("paid link transfers = %v", linkTransfers)
+	}
+	if public.expect(http.StatusOK, http.MethodGet, "/v1/public/pay/"+reference, nil)["status"] != "paid" {
+		t.Fatal("public page must show the link as paid")
+	}
+	incoming = student.expect(http.StatusOK, http.MethodGet, "/v1/incoming-transfers?limit=2", nil)
+	if items := incoming["items"].([]any); len(items) != 2 || incoming["next_cursor"] == nil {
+		t.Fatalf("incoming transfers page = %v", incoming)
+	}
+	rest := student.expect(http.StatusOK, http.MethodGet, "/v1/incoming-transfers?limit=2&cursor="+incoming["next_cursor"].(string), nil)
+	if items := rest["items"].([]any); len(items) != 1 || rest["next_cursor"] != nil {
+		t.Fatalf("incoming transfers second page = %v", rest)
+	}
+	student.expect(http.StatusUnprocessableEntity, http.MethodGet, "/v1/incoming-transfers?cursor=garbage", nil)
+
 	transactions := student.expect(http.StatusOK, http.MethodGet, "/v1/transactions?limit=2", nil)
 	movements := transactions["items"].([]any)
-	if len(movements) != 2 || movements[0].(map[string]any)["available_delta"] != "5.000000" || transactions["next_cursor"] == nil {
+	if len(movements) != 2 || movements[0].(map[string]any)["kind"] != "deposit" || movements[0].(map[string]any)["incoming_transfer_id"] == nil || transactions["next_cursor"] == nil {
 		t.Fatalf("transactions = %v", transactions)
+	}
+
+	if _, err := pool.Exec(context.Background(), `UPDATE jars SET address = NULL, provisioned_at = NULL WHERE user_id = $1`, userID); err != nil {
+		t.Fatal(err)
+	}
+	notReady := public.expect(http.StatusServiceUnavailable, http.MethodGet, "/v1/public/pay/"+reference, nil)
+	if errorCode(notReady) != "jar_not_ready" {
+		t.Fatalf("unprovisioned jar = %v", notReady)
 	}
 
 	closed := student.expect(http.StatusOK, http.MethodPost, "/v1/payment-links/"+link["id"].(string)+"/close", nil)

@@ -43,8 +43,25 @@ services:
       GIGJAR_DATABASE_URL: postgres://gigjar:gigjar@postgres:5432/gigjar?sslmode=disable
       GIGJAR_HTTP_ADDR: ":8080"
       GIGJAR_CORS_ALLOWED_ORIGINS: http://localhost:3000
+      GIGJAR_CHAIN_NETWORK: ${GIGJAR_CHAIN_NETWORK:-simulated}
     ports:
       - "${GIGJAR_API_PORT:-8090}:8080"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
+  watcher:
+    build:
+      context: .
+      dockerfile: infra/docker/go-service.Dockerfile
+      args:
+        SERVICE: watcher
+    environment:
+      GIGJAR_ENV: development
+      GIGJAR_DATABASE_URL: postgres://gigjar:gigjar@postgres:5432/gigjar?sslmode=disable
+      GIGJAR_CHAIN_NETWORK: ${GIGJAR_CHAIN_NETWORK:-simulated}
+      GIGJAR_TRONGRID_API_KEY: ${GIGJAR_TRONGRID_API_KEY:-}
+    restart: unless-stopped
     depends_on:
       migrate:
         condition: service_completed_successfully

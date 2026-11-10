@@ -9,14 +9,14 @@ gigjar/
 ├── apps/web/                 Next.js student dashboard and public payment page (calls /api/*, rewritten to the Go API)
 ├── services/
 │   ├── api/                  HTTP API process (main package only)
-│   ├── watcher/              chain observation process            (Phase 3)
+│   ├── watcher/              chain observation process
 │   ├── sweeper/              settlement process                   (Phase 4)
 │   ├── migrate/              schema migration runner
 │   └── signer/               Node.js process wrapping Tether WDK   (Phase 4)
 ├── internal/                 shared Go packages (one Go module at the repo root)
 │   ├── config/  logging/  database/  httpapi/
-│   ├── ledger/  users/  paylinks/  usdt/        (Phase 2)
-│   ├── chain/  tron/  watch/                    (Phase 3)
+│   ├── identity/  jars/  ledger/  paylinks/  usdt/
+│   ├── chain/ (+ trongrid/, simulated/)  tron/  transfers/  watcher/
 │   └── settlement/  wallet/                     (Phase 4)
 ├── migrations/               SQL migrations, embedded into the Go binaries
 ├── packages/contracts/       OpenAPI contract shared by API and web
@@ -52,7 +52,8 @@ Ledger: Account (per user × kind, plus system accounts)
 | `jars` | one per user. `derivation_index` (unique, sequential) is the WDK account index. `address` is the derived TRON address (unique). |
 | `cleva_destinations` | TRC20 address validated by base58check with the `0x41` prefix. New rows supersede old ones, and each settlement records the destination it used. |
 | `payment_links` | public `reference` (short, unguessable), title, description, `expected_amount` (base units), status `open → paid → closed` (also `expired`). |
-| `incoming_transfers` | unique `(network, tx_hash, log_index)`, `to_address`, `from_address`, `amount`, `block_number`, status, `payment_link_id` (nullable). |
+| `incoming_transfers` | unique `(network, tx_hash, to_address)`. All USDT logs to one jar in one transaction form one row, and `log_indexes` records which. Also `from_address`, `amount`, `block_number`, status, `payment_link_id` (nullable). Frozen once resolved. |
+| `jar_watch_state` | per provisioned jar: the address, the poll cursor (`min_block_timestamp_ms`), the next poll time, failure count and last error. |
 | `settlements` | state machine below, `amount`, `destination_address`, `tx_id`, attempt metadata. |
 | `ledger_accounts`, `journal_entries`, `postings` | double-entry ledger below. |
 
@@ -61,7 +62,7 @@ Ledger: Account (per user × kind, plus system accounts)
 USDT TRC20 transfers carry no memo, so the receiving address is the only reliable link between a transfer and a student. Every student has one jar address (as in the pitch deck), and every link that student creates pays into it.
 
 - **Money is attributed by address, so attribution is always correct.** A confirmed transfer to a jar address credits that jar's owner, even when no link matches.
-- **The link is attributed by amount.** A transfer matches the oldest open link of that student with exactly the same expected amount. A transfer that matches no link is still credited, recorded with `payment_link_id = NULL` and shown as "unlinked". The student can attach it to a link later. A wrong link match changes only a label, never a balance.
+- **The link is attributed by amount.** A transfer matches the oldest open link of that student with exactly the same expected amount. A transfer that matches no link is still credited, recorded with `payment_link_id = NULL` and shown as "unlinked". Attaching it to a link by hand is not built yet. A wrong link match changes only a label, never a balance.
 
 ## 3. Money representation
 
@@ -115,7 +116,7 @@ Balances shown to the student:
             confirmed  ── ledger credit in the same DB transaction
 ```
 
-A repeat observation of the same `(network, tx_hash, log_index)` is a no-op through `INSERT … ON CONFLICT DO NOTHING`.
+A repeat observation of the same `(network, tx_hash, to_address)` is a no-op through `INSERT … ON CONFLICT DO NOTHING`. TRON has no reorgs past solidification. A transaction that stays unsolidified for 24h is marked `failed` with `not_solidified`.
 
 ### Settlement
 
@@ -170,5 +171,33 @@ Gas: a TRC20 transfer from the jar address needs TRX (energy and bandwidth). Bef
 - **Sessions** are opaque 256-bit tokens in an httpOnly, SameSite=Lax cookie. Only their SHA-256 is stored. Passwords use argon2id (19 MiB, t=2, p=1). Unknown emails still run a decoy hash, so response timing doesn't reveal which emails exist.
 - **CSRF** protection is Go's `http.CrossOriginProtection` on `/v1`, with the configured web origins trusted. Browsers reach the API same-origin through the Next `/api` rewrite.
 - **Login throttling** allows 10 attempts per email per minute, in memory per API process. Running several API replicas needs a shared limiter.
-- **Jar addresses** are allocated a `derivation_index` at sign-up. The address stays null until the wallet service provisions it (Phase 4). Until then the public pay page answers `503 jar_not_ready` rather than showing an address that can't be swept.
+- **Jar addresses** are allocated a `derivation_index` at sign-up. On real networks the address stays null until the wallet service provisions it (Phase 4). Until then the public pay page answers `503 jar_not_ready` rather than showing an address that can't be swept. (Since Phase 3, simulated jars get a simulated address at sign-up.)
 - **Cleva destinations** are append-only, and the newest row is the current one. A settlement will copy the destination it uses, so changing the address never redirects a sweep that is already in flight.
+
+## 10. Phase 3 decisions
+
+- **Two-step observation.** Discovery and confirmation use different TronGrid sources:
+  - *Discovery* polls `GET /v1/accounts/{jar}/transactions/trc20?only_to=true&contract_address=<USDT>` per jar address. It includes unconfirmed transactions, so payments show as `pending` within seconds.
+  - *Confirmation* calls `POST /walletsolidity/gettransactioninfobyid`. That answers only once the block is solidified (irreversible, about a minute on TRON). GigJar then credits only if the receipt is `SUCCESS` and the logs contain a `Transfer` event from the real USDT contract to the jar.
+  - The credited amount comes from those logs, never from the indexer listing.
+  - Zero-value transfers (address-poisoning spam) and other tokens are ignored.
+- **Crediting is atomic.** In one DB transaction, `transfers.Confirm`:
+  1. locks the transfer row;
+  2. marks it confirmed;
+  3. attributes it to a link: the oldest open link with exactly that amount, created no later than the block time;
+  4. marks that link paid;
+  5. posts the ledger deposit.
+- **Credits are idempotent, three ways.** The row lock, the unique `(network, tx_hash, to_address)` and the ledger idempotency key `deposit:{transfer_id}` each prevent a double credit. `journal_entries.incoming_transfer_id` is now a foreign key, so a deposit without a real transfer row is impossible.
+- **Polling is per jar, scheduled in the database.** `jar_watch_state.next_poll_at` is claimed with `FOR UPDATE SKIP LOCKED` and leased forward, so several watcher processes split the work safely.
+  - Jars with open links or pending transfers are polled every 15s; all others every 5 minutes.
+  - Failures back off exponentially, up to 10 minutes.
+  - The cursor is the newest block timestamp seen, and each poll looks back 10 minutes past it so it catches indexer lag.
+- **Pending confirmations back off** (5s, 10s, 20s … up to 2 minutes) and use the same claim-and-lease pattern.
+- **Reconciliation** runs every 10 minutes, or once with `watcher reconcile`. It checks three things:
+  - cached balances against postings;
+  - every confirmed transfer against exactly one deposit of the same amount;
+  - for a rotating batch of jars, the on-chain USDT balance against the ledger's available + reserved.
+  - A chain balance below the ledger is an error. Extra funds on chain beyond pending are a warning, for example a transfer the indexer missed.
+- **Simulated chain.** `simulated_chain_transfers` stands in for the chain. `POST /v1/simulator/transfers` writes to it, and the simulated provider reads it with the same interface and semantics as TronGrid, including a configurable delay before a transfer is final. The route is mounted only on the simulated network, and production refuses that network.
+- **Public pending signal.** The public pay page reports `pending_payment_observed` when a pending transfer of exactly the link's amount has reached the jar since the link was created. It reveals nothing about other payments.
+- **Verified against Nile.** `make test-trongrid` runs the adapter and the full watcher against the live Nile testnet. Both tests are read-only. The watcher test points a jar at a public Nile address and credits a real solidified 1000 USDT transfer (block 72540166).
