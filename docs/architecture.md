@@ -160,3 +160,15 @@ Gas: a TRC20 transfer from the jar address needs TRX (energy and bandwidth). Bef
 4. **Settlement.** Sweeper, state machine, locking, retries, the `wallet.Provider` interface, the WDK signer service and gas top-ups.
 5. **Frontend.** All ten screens against the contract.
 6. **Integration.** End-to-end flow on the simulated network and on Nile, failure scenarios, documentation.
+
+## 9. Phase 2 decisions
+
+- **Balances are maintained by the database.** An `AFTER INSERT` trigger on `postings` applies each posting to `ledger_accounts.balance`, so the cached balance cannot drift from the postings. Go code locks the two affected accounts with `SELECT ... FOR UPDATE ORDER BY id` before posting, so locks are always taken in the same order and posts cannot deadlock. An overdraft trips `ledger_accounts_user_balance_non_negative` and surfaces as `ledger.ErrInsufficientFunds`.
+- **Balanced entries are enforced in the database.** Deferred constraint triggers reject, at commit, any journal entry with fewer than two postings or postings that don't sum to zero.
+- **Replays are idempotent.** Every movement has a deterministic key (`deposit:{transfer}`, `settlement-reserve:{settlement}` and so on). Replaying the same key returns `AlreadyRecorded`. Replaying it with a different user, kind or amount is rejected as `ErrIdempotencyKeyConflict`.
+- **`chain_inflow` is one shared row.** Every deposit locks it. This is fine at campus scale. If deposits ever contend on it, it can be split into a per-user or per-shard inflow account without changing the API.
+- **Sessions** are opaque 256-bit tokens in an httpOnly, SameSite=Lax cookie. Only their SHA-256 is stored. Passwords use argon2id (19 MiB, t=2, p=1). Unknown emails still run a decoy hash, so response timing doesn't reveal which emails exist.
+- **CSRF** protection is Go's `http.CrossOriginProtection` on `/v1`, with the configured web origins trusted. Browsers reach the API same-origin through the Next `/api` rewrite.
+- **Login throttling** allows 10 attempts per email per minute, in memory per API process. Running several API replicas needs a shared limiter.
+- **Jar addresses** are allocated a `derivation_index` at sign-up. The address stays null until the wallet service provisions it (Phase 4). Until then the public pay page answers `503 jar_not_ready` rather than showing an address that can't be swept.
+- **Cleva destinations** are append-only, and the newest row is the current one. A settlement will copy the destination it uses, so changing the address never redirects a sweep that is already in flight.

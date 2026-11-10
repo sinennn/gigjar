@@ -9,8 +9,8 @@ Read [docs/architecture.md](docs/architecture.md) for the domain model, ledger, 
 | Phase | Scope | State |
 |---|---|---|
 | 1 | Foundation: config, logging, Postgres, migrations, health checks, API skeleton, Docker, web skeleton | done |
-| 2 | Financial core: users, auth, payment links, double-entry ledger | next |
-| 3 | Watcher: TRON observation, attribution, confirmations | planned |
+| 2 | Financial core: users, auth, payment links, double-entry ledger | done |
+| 3 | Watcher: TRON observation, attribution, confirmations | next |
 | 4 | Sweeper: settlement state machine, WDK signer | planned |
 | 5 | Frontend screens | scaffolded |
 | 6 | End-to-end integration | planned |
@@ -65,6 +65,11 @@ All services read `GIGJAR_*` environment variables. See [.env.example](.env.exam
 | `GIGJAR_CORS_ALLOWED_ORIGINS` | `http://localhost:3000` | Wildcard is refused in production |
 | `GIGJAR_HTTP_REQUEST_TIMEOUT` | `15s` | |
 | `GIGJAR_SHUTDOWN_TIMEOUT` | `20s` | |
+| `GIGJAR_CHAIN_NETWORK` | `simulated` | `tron-mainnet`, `tron-nile` or `simulated`. Production refuses `simulated`. |
+| `GIGJAR_SETTLEMENT_THRESHOLD` | `11` | USDT. Must be above Cleva's 10 USDT minimum. |
+| `GIGJAR_PUBLIC_WEB_URL` | `http://localhost:3000` | Base for `pay_url` on payment links |
+| `GIGJAR_SESSION_TTL` | `720h` | |
+| `GIGJAR_SECURE_COOKIES` | on in production | Production refuses `false` |
 
 ## Health
 

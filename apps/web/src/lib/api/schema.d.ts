@@ -203,6 +203,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
+        /** @description Phase 3. */
         get: operations["listIncomingTransfers"];
         put?: never;
         post?: never;
@@ -219,6 +220,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
+        /** @description Phase 4. */
         get: operations["listSettlements"];
         put?: never;
         post?: never;
@@ -252,6 +254,11 @@ export interface components {
             /** @enum {string} */
             status: "ok" | "ready";
         };
+        /**
+         * @description Stable `error.code` values: malformed_body, validation_failed (with `fields`), email_taken, invalid_credentials,
+         *     too_many_attempts, unauthenticated, cross_origin_rejected, payment_link_not_found, idempotency_key_conflict,
+         *     cleva_destination_not_set, jar_not_found, jar_not_ready, not_ready, not_found, method_not_allowed, internal_error.
+         */
         ErrorBody: {
             error: {
                 code: string;
@@ -294,16 +301,17 @@ export interface components {
             display_name?: string;
         };
         Jar: {
-            address: components["schemas"]["TronAddress"];
+            /** @description Null until the jar's TRON address is provisioned by the wallet service (Phase 4). */
+            address: components["schemas"]["TronAddress"] | null;
             network: components["schemas"]["Network"];
             balances: components["schemas"]["JarBalances"];
             settlement_threshold: components["schemas"]["UsdtAmount"];
             remaining_until_settlement: components["schemas"]["UsdtAmount"];
-            cleva_destination_set?: boolean;
+            cleva_destination_set: boolean;
         };
         JarBalances: {
-            /** @description Observed on chain, not yet solidified. Not spendable. */
-            pending: components["schemas"]["UsdtAmount"];
+            /** @description Observed on chain, not yet solidified. Not spendable. Returned once the watcher ships (Phase 3). */
+            pending?: components["schemas"]["UsdtAmount"];
             /** @description Confirmed and waiting in the jar. */
             available: components["schemas"]["UsdtAmount"];
             /** @description Reserved by an in-flight sweep to Cleva. */
@@ -329,8 +337,9 @@ export interface components {
             id: string;
             reference: string;
             title: string;
-            description?: string;
+            description: string;
             amount: components["schemas"]["UsdtAmount"];
+            /** @description Returned once the watcher ships (Phase 3). */
             amount_received?: components["schemas"]["UsdtAmount"];
             status: components["schemas"]["PaymentLinkStatus"];
             /** Format: uri */
@@ -338,7 +347,7 @@ export interface components {
             /** Format: date-time */
             created_at: string;
             /** Format: date-time */
-            paid_at?: string | null;
+            paid_at: string | null;
         };
         PaymentLinkDetail: components["schemas"]["PaymentLink"] & {
             transfers: components["schemas"]["IncomingTransfer"][];
@@ -370,9 +379,9 @@ export interface components {
             settling_delta: string;
             settled_delta: string;
             /** Format: uuid */
-            incoming_transfer_id?: string | null;
+            incoming_transfer_id: string | null;
             /** Format: uuid */
-            settlement_id?: string | null;
+            settlement_id: string | null;
             /** Format: date-time */
             created_at: string;
         };
@@ -405,7 +414,8 @@ export interface components {
                 symbol: "USDT";
                 /** @constant */
                 standard: "TRC20";
-                contract_address: components["schemas"]["TronAddress"];
+                /** @description Null on the simulated network, where no real token contract exists. */
+                contract_address: components["schemas"]["TronAddress"] | null;
             };
             status: components["schemas"]["PaymentLinkStatus"];
         };
@@ -523,6 +533,15 @@ export interface operations {
                 };
             };
             401: components["responses"]["Error"];
+            /** @description More than 10 attempts for this email in the last minute (`too_many_attempts`). */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
         };
     };
     logout: {
@@ -698,6 +717,15 @@ export interface operations {
             };
         };
         responses: {
+            /** @description Replay of an earlier request with the same Idempotency-Key; the original link is returned. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PaymentLink"];
+                };
+            };
             /** @description Link created. */
             201: {
                 headers: {
@@ -707,6 +735,7 @@ export interface operations {
                     "application/json": components["schemas"]["PaymentLink"];
                 };
             };
+            409: components["responses"]["Error"];
             422: components["responses"]["Error"];
         };
     };
@@ -721,13 +750,13 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Link with the transfers attributed to it. */
+            /** @description The link. Attributed transfers are added in Phase 3 (see PaymentLinkDetail). */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["PaymentLinkDetail"];
+                    "application/json": components["schemas"]["PaymentLink"];
                 };
             };
             404: components["responses"]["Error"];
@@ -854,6 +883,15 @@ export interface operations {
                 };
             };
             404: components["responses"]["Error"];
+            /** @description The student's jar address is not provisioned yet (`jar_not_ready`). Show "not ready to receive payments". */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
         };
     };
 }

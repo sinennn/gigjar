@@ -31,3 +31,21 @@ func TestParseAddressRejectsInvalidAddresses(t *testing.T) {
 		}
 	}
 }
+
+func TestNetworkContractsAreValidAddresses(t *testing.T) {
+	for _, network := range []Network{NetworkMainnet, NetworkNile} {
+		contract, ok := network.USDTContract()
+		if !ok {
+			t.Fatalf("%s has no USDT contract", network)
+		}
+		if _, err := ParseAddress(string(contract)); err != nil {
+			t.Errorf("%s contract %s is invalid: %v", network, contract, err)
+		}
+	}
+	if _, ok := NetworkSimulated.USDTContract(); ok {
+		t.Error("simulated network must not claim a real USDT contract")
+	}
+	if _, err := ParseNetwork("ethereum"); err == nil {
+		t.Error("unknown network accepted")
+	}
+}

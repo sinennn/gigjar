@@ -48,7 +48,7 @@ paths:
     post:
       tags: [auth]
       operationId: register
-      x-status: planned
+      x-status: implemented
       requestBody:
         required: true
         content:
@@ -67,7 +67,7 @@ paths:
     post:
       tags: [auth]
       operationId: login
-      x-status: planned
+      x-status: implemented
       requestBody:
         required: true
         content:
@@ -80,12 +80,17 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/User" }
         "401": { $ref: "#/components/responses/Error" }
+        "429":
+          description: More than 10 attempts for this email in the last minute (`too_many_attempts`).
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorBody" }
 
   /v1/auth/logout:
     post:
       tags: [auth]
       operationId: logout
-      x-status: planned
+      x-status: implemented
       responses:
         "204": { description: Session revoked. }
 
@@ -93,7 +98,7 @@ paths:
     get:
       tags: [auth]
       operationId: getMe
-      x-status: planned
+      x-status: implemented
       responses:
         "200":
           description: Current user.
@@ -104,7 +109,7 @@ paths:
     patch:
       tags: [auth]
       operationId: updateMe
-      x-status: planned
+      x-status: implemented
       requestBody:
         required: true
         content:
@@ -121,7 +126,7 @@ paths:
     get:
       tags: [jar]
       operationId: getJar
-      x-status: planned
+      x-status: implemented
       responses:
         "200":
           description: Jar address and balances, computed server side from the ledger.
@@ -133,7 +138,7 @@ paths:
     get:
       tags: [wallet]
       operationId: getClevaDestination
-      x-status: planned
+      x-status: implemented
       responses:
         "200":
           description: Current Cleva TRC20 deposit address.
@@ -144,7 +149,7 @@ paths:
     put:
       tags: [wallet]
       operationId: setClevaDestination
-      x-status: planned
+      x-status: implemented
       requestBody:
         required: true
         content:
@@ -166,7 +171,7 @@ paths:
     get:
       tags: [payment-links]
       operationId: listPaymentLinks
-      x-status: planned
+      x-status: implemented
       parameters:
         - $ref: "#/components/parameters/Cursor"
         - $ref: "#/components/parameters/Limit"
@@ -189,7 +194,7 @@ paths:
     post:
       tags: [payment-links]
       operationId: createPaymentLink
-      x-status: planned
+      x-status: implemented
       parameters:
         - $ref: "#/components/parameters/IdempotencyKey"
       requestBody:
@@ -203,28 +208,34 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/PaymentLink" }
+        "200":
+          description: Replay of an earlier request with the same Idempotency-Key; the original link is returned.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PaymentLink" }
+        "409": { $ref: "#/components/responses/Error" }
         "422": { $ref: "#/components/responses/Error" }
 
   /v1/payment-links/{id}:
     get:
       tags: [payment-links]
       operationId: getPaymentLink
-      x-status: planned
+      x-status: implemented
       parameters:
         - $ref: "#/components/parameters/ResourceId"
       responses:
         "200":
-          description: Link with the transfers attributed to it.
+          description: The link. Attributed transfers are added in Phase 3 (see PaymentLinkDetail).
           content:
             application/json:
-              schema: { $ref: "#/components/schemas/PaymentLinkDetail" }
+              schema: { $ref: "#/components/schemas/PaymentLink" }
         "404": { $ref: "#/components/responses/Error" }
 
   /v1/payment-links/{id}/close:
     post:
       tags: [payment-links]
       operationId: closePaymentLink
-      x-status: planned
+      x-status: implemented
       parameters:
         - $ref: "#/components/parameters/ResourceId"
       responses:
@@ -238,7 +249,7 @@ paths:
     get:
       tags: [history]
       operationId: listTransactions
-      x-status: planned
+      x-status: implemented
       parameters:
         - $ref: "#/components/parameters/Cursor"
         - $ref: "#/components/parameters/Limit"
@@ -261,6 +272,7 @@ paths:
       tags: [history]
       operationId: listIncomingTransfers
       x-status: planned
+      description: Phase 3.
       parameters:
         - $ref: "#/components/parameters/Cursor"
         - $ref: "#/components/parameters/Limit"
@@ -283,6 +295,7 @@ paths:
       tags: [history]
       operationId: listSettlements
       x-status: planned
+      description: Phase 4.
       parameters:
         - $ref: "#/components/parameters/Cursor"
         - $ref: "#/components/parameters/Limit"
@@ -304,7 +317,7 @@ paths:
     get:
       tags: [public]
       operationId: getPublicPaymentInstructions
-      x-status: planned
+      x-status: implemented
       security: []
       parameters:
         - name: reference
@@ -318,6 +331,11 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/PublicPaymentInstructions" }
         "404": { $ref: "#/components/responses/Error" }
+        "503":
+          description: The student's jar address is not provisioned yet (`jar_not_ready`). Show "not ready to receive payments".
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorBody" }
 
 components:
   securitySchemes:
@@ -362,6 +380,10 @@ components:
 
     ErrorBody:
       type: object
+      description: |
+        Stable `error.code` values: malformed_body, validation_failed (with `fields`), email_taken, invalid_credentials,
+        too_many_attempts, unauthenticated, cross_origin_rejected, payment_link_not_found, idempotency_key_conflict,
+        cleva_destination_not_set, jar_not_found, jar_not_ready, not_ready, not_found, method_not_allowed, internal_error.
       required: [error]
       properties:
         error:
@@ -420,9 +442,13 @@ components:
 
     Jar:
       type: object
-      required: [address, network, balances, settlement_threshold, remaining_until_settlement]
+      required: [address, network, balances, settlement_threshold, remaining_until_settlement, cleva_destination_set]
       properties:
-        address: { $ref: "#/components/schemas/TronAddress" }
+        address:
+          description: Null until the jar's TRON address is provisioned by the wallet service (Phase 4).
+          oneOf:
+            - $ref: "#/components/schemas/TronAddress"
+            - type: "null"
         network: { $ref: "#/components/schemas/Network" }
         balances: { $ref: "#/components/schemas/JarBalances" }
         settlement_threshold: { $ref: "#/components/schemas/UsdtAmount" }
@@ -431,11 +457,11 @@ components:
 
     JarBalances:
       type: object
-      required: [pending, available, settling, settled]
+      required: [available, settling, settled]
       properties:
         pending:
           allOf: [{ $ref: "#/components/schemas/UsdtAmount" }]
-          description: Observed on chain, not yet solidified. Not spendable.
+          description: Observed on chain, not yet solidified. Not spendable. Returned once the watcher ships (Phase 3).
         available:
           allOf: [{ $ref: "#/components/schemas/UsdtAmount" }]
           description: Confirmed and waiting in the jar.
@@ -468,14 +494,16 @@ components:
 
     PaymentLink:
       type: object
-      required: [id, reference, title, amount, status, pay_url, created_at]
+      required: [id, reference, title, description, amount, status, pay_url, created_at, paid_at]
       properties:
         id: { type: string, format: uuid }
         reference: { type: string }
         title: { type: string }
         description: { type: string }
         amount: { $ref: "#/components/schemas/UsdtAmount" }
-        amount_received: { $ref: "#/components/schemas/UsdtAmount" }
+        amount_received:
+          allOf: [{ $ref: "#/components/schemas/UsdtAmount" }]
+          description: Returned once the watcher ships (Phase 3).
         status: { $ref: "#/components/schemas/PaymentLinkStatus" }
         pay_url: { type: string, format: uri }
         created_at: { type: string, format: date-time }
@@ -515,7 +543,7 @@ components:
 
     LedgerMovement:
       type: object
-      required: [id, kind, available_delta, settling_delta, settled_delta, created_at]
+      required: [id, kind, available_delta, settling_delta, settled_delta, incoming_transfer_id, settlement_id, created_at]
       properties:
         id: { type: string, format: uuid }
         kind: { $ref: "#/components/schemas/LedgerMovementKind" }
@@ -561,7 +589,11 @@ components:
           properties:
             symbol: { type: string, const: USDT }
             standard: { type: string, const: TRC20 }
-            contract_address: { $ref: "#/components/schemas/TronAddress" }
+            contract_address:
+              description: Null on the simulated network, where no real token contract exists.
+              oneOf:
+                - $ref: "#/components/schemas/TronAddress"
+                - type: "null"
         status: { $ref: "#/components/schemas/PaymentLinkStatus" }
 
 security:

@@ -14,12 +14,16 @@ import (
 )
 
 func newTestRouter(readiness ReadinessProbe) http.Handler {
-	return NewRouter(RouterConfig{
+	router, err := NewRouter(RouterConfig{
 		Logger:         slog.New(slog.NewTextHandler(io.Discard, nil)),
 		AllowedOrigins: []string{"http://localhost:3000"},
 		RequestTimeout: time.Second,
 		Readiness:      readiness,
 	})
+	if err != nil {
+		panic(err)
+	}
+	return router
 }
 
 func serve(handler http.Handler, method, path string, headers map[string]string) *httptest.ResponseRecorder {
@@ -128,5 +132,52 @@ func TestSecurityHeadersAreSet(t *testing.T) {
 	}
 	if recorder.Header().Get("X-Frame-Options") != "DENY" {
 		t.Errorf("missing frame options header")
+	}
+}
+
+func TestCrossSiteWritesAreRejected(t *testing.T) {
+	router := newTestRouter(func(context.Context) error { return nil })
+
+	recorder := serve(router, http.MethodPost, "/v1/auth/logout", map[string]string{
+		"Origin":         "https://evil.example",
+		"Sec-Fetch-Site": "cross-site",
+	})
+
+	if recorder.Code != http.StatusForbidden {
+		t.Fatalf("status = %d, want 403", recorder.Code)
+	}
+	if body := decodeBody[ErrorBody](t, recorder); body.Error.Code != "cross_origin_rejected" {
+		t.Errorf("error code = %q", body.Error.Code)
+	}
+}
+
+func TestPrivateRoutesRequireSession(t *testing.T) {
+	router := newTestRouter(func(context.Context) error { return nil })
+
+	for _, path := range []string{"/v1/me", "/v1/jar", "/v1/payment-links", "/v1/transactions", "/v1/wallet/cleva"} {
+		recorder := serve(router, http.MethodGet, path, nil)
+		if recorder.Code != http.StatusUnauthorized {
+			t.Errorf("%s status = %d, want 401", path, recorder.Code)
+		}
+	}
+}
+
+func TestAttemptLimiterSlidesWindow(t *testing.T) {
+	limiter := newAttemptLimiter(2, time.Minute)
+	clock := time.Date(2026, 11, 10, 12, 0, 0, 0, time.UTC)
+	limiter.now = func() time.Time { return clock }
+
+	if !limiter.allow("A@x.com") || !limiter.allow("a@x.com ") {
+		t.Fatal("first two attempts must pass")
+	}
+	if limiter.allow("a@x.com") {
+		t.Fatal("third attempt inside the window must be blocked")
+	}
+	if !limiter.allow("b@x.com") {
+		t.Fatal("other keys must not be affected")
+	}
+	clock = clock.Add(61 * time.Second)
+	if !limiter.allow("a@x.com") {
+		t.Fatal("attempts must be allowed after the window passes")
 	}
 }

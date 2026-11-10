@@ -4,6 +4,9 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"gigjar/internal/tron"
+	"gigjar/internal/usdt"
 )
 
 func lookupFrom(values map[string]string) LookupFunc {
@@ -43,6 +46,8 @@ func TestLoadAPIParsesOverrides(t *testing.T) {
 		"GIGJAR_LOG_FORMAT":           "text",
 		"GIGJAR_CORS_ALLOWED_ORIGINS": " https://gigjar.app , https://www.gigjar.app ,",
 		"GIGJAR_HTTP_REQUEST_TIMEOUT": "30s",
+		"GIGJAR_CHAIN_NETWORK":        "tron-mainnet",
+		"GIGJAR_SETTLEMENT_THRESHOLD": "12.5",
 	}))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -85,6 +90,7 @@ func TestLoadAPIRejectsWildcardCORSInProduction(t *testing.T) {
 	_, err := LoadAPI(lookupFrom(map[string]string{
 		"GIGJAR_ENV":                  "production",
 		"GIGJAR_DATABASE_URL":         "postgres://db/gigjar",
+		"GIGJAR_CHAIN_NETWORK":        "tron-mainnet",
 		"GIGJAR_CORS_ALLOWED_ORIGINS": "*",
 	}))
 	if err == nil || !strings.Contains(err.Error(), "wildcard") {
@@ -102,5 +108,38 @@ func TestBlankValuesFallBackToDefaults(t *testing.T) {
 	}
 	if cfg.LogLevel != "info" {
 		t.Errorf("log level = %q, want info", cfg.LogLevel)
+	}
+}
+
+func TestLoadAPIFinancialDefaults(t *testing.T) {
+	cfg, err := LoadAPI(lookupFrom(map[string]string{"GIGJAR_DATABASE_URL": "postgres://db/gigjar"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Network != tron.NetworkSimulated {
+		t.Errorf("network = %s, want simulated in development", cfg.Network)
+	}
+	if cfg.SettlementThreshold != usdt.MustParse("11") {
+		t.Errorf("threshold = %s", cfg.SettlementThreshold)
+	}
+	if cfg.SecureCookies {
+		t.Error("secure cookies should default off outside production")
+	}
+}
+
+func TestProductionGuards(t *testing.T) {
+	_, err := LoadAPI(lookupFrom(map[string]string{
+		"GIGJAR_ENV":                  "production",
+		"GIGJAR_DATABASE_URL":         "postgres://db/gigjar",
+		"GIGJAR_SECURE_COOKIES":       "false",
+		"GIGJAR_SETTLEMENT_THRESHOLD": "10",
+	}))
+	if err == nil {
+		t.Fatal("expected production guard errors")
+	}
+	for _, key := range []string{"GIGJAR_CHAIN_NETWORK", "GIGJAR_SECURE_COOKIES", "GIGJAR_SETTLEMENT_THRESHOLD"} {
+		if !strings.Contains(err.Error(), key) {
+			t.Errorf("error does not mention %s: %v", key, err)
+		}
 	}
 }
