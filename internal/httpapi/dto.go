@@ -38,6 +38,7 @@ type jarResponse struct {
 	Network                  tron.Network        `json:"network"`
 	Balances                 jarBalancesResponse `json:"balances"`
 	SettlementThreshold      usdt.Amount         `json:"settlement_threshold"`
+	SettlementFee            usdt.Amount         `json:"settlement_fee"`
 	RemainingUntilSettlement usdt.Amount         `json:"remaining_until_settlement"`
 	ClevaDestinationSet      bool                `json:"cleva_destination_set"`
 }
@@ -53,6 +54,7 @@ func newJarResponse(summary jars.Summary) jarResponse {
 			Settled:   summary.Balances.Settled,
 		},
 		SettlementThreshold:      summary.SettlementThreshold,
+		SettlementFee:            summary.SettlementFee,
 		RemainingUntilSettlement: summary.RemainingUntilSettlement,
 		ClevaDestinationSet:      summary.ClevaDestinationSet,
 	}

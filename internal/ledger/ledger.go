@@ -19,6 +19,7 @@ const (
 	AccountJarReserved  AccountKind = "jar_reserved"
 	AccountSettled      AccountKind = "settled"
 	AccountChainInflow  AccountKind = "chain_inflow"
+	AccountPlatformFees AccountKind = "platform_fees"
 )
 
 var userAccountKinds = []AccountKind{AccountJarAvailable, AccountJarReserved, AccountSettled}
@@ -37,11 +38,17 @@ var (
 	ErrNonPositiveAmount      = errors.New("ledger amounts must be positive")
 	ErrIdempotencyKeyConflict = errors.New("idempotency key already used for a different movement")
 	ErrAccountsMissing        = errors.New("ledger accounts are missing for user")
+	ErrFeeTooLarge            = errors.New("settlement fee must be smaller than the settled amount")
 )
 
 type Recorded struct {
 	EntryID         uuid.UUID
 	AlreadyRecorded bool
+}
+
+type leg struct {
+	account AccountKind
+	amount  usdt.Amount
 }
 
 type entry struct {
@@ -51,8 +58,15 @@ type entry struct {
 	incomingTransferID *uuid.UUID
 	settlementID       *uuid.UUID
 	amount             usdt.Amount
-	debit              AccountKind
-	credit             AccountKind
+	legs               []leg
+}
+
+func transfer(from, to AccountKind, amount usdt.Amount) []leg {
+	return []leg{{account: from, amount: -amount}, {account: to, amount: amount}}
+}
+
+func isSystemAccount(kind AccountKind) bool {
+	return kind == AccountChainInflow || kind == AccountPlatformFees
 }
 
 func OpenUserAccounts(ctx context.Context, tx pgx.Tx, userID uuid.UUID) error {
@@ -75,8 +89,7 @@ func RecordDeposit(ctx context.Context, tx pgx.Tx, userID, incomingTransferID uu
 		userID:             userID,
 		incomingTransferID: &incomingTransferID,
 		amount:             amount,
-		debit:              AccountChainInflow,
-		credit:             AccountJarAvailable,
+		legs:               transfer(AccountChainInflow, AccountJarAvailable, amount),
 	})
 }
 
@@ -87,20 +100,25 @@ func ReserveForSettlement(ctx context.Context, tx pgx.Tx, userID, settlementID u
 		userID:         userID,
 		settlementID:   &settlementID,
 		amount:         amount,
-		debit:          AccountJarAvailable,
-		credit:         AccountJarReserved,
+		legs:           transfer(AccountJarAvailable, AccountJarReserved, amount),
 	})
 }
 
-func CompleteSettlement(ctx context.Context, tx pgx.Tx, userID, settlementID uuid.UUID, amount usdt.Amount) (Recorded, error) {
+func CompleteSettlement(ctx context.Context, tx pgx.Tx, userID, settlementID uuid.UUID, amount, fee usdt.Amount) (Recorded, error) {
+	if fee < 0 || fee >= amount {
+		return Recorded{}, ErrFeeTooLarge
+	}
+	legs := []leg{{account: AccountJarReserved, amount: -amount}, {account: AccountSettled, amount: amount - fee}}
+	if fee > 0 {
+		legs = append(legs, leg{account: AccountPlatformFees, amount: fee})
+	}
 	return record(ctx, tx, entry{
 		kind:           EntrySettlementCompleted,
 		idempotencyKey: "settlement-complete:" + settlementID.String(),
 		userID:         userID,
 		settlementID:   &settlementID,
 		amount:         amount,
-		debit:          AccountJarReserved,
-		credit:         AccountSettled,
+		legs:           legs,
 	})
 }
 
@@ -111,8 +129,7 @@ func ReleaseSettlement(ctx context.Context, tx pgx.Tx, userID, settlementID uuid
 		userID:         userID,
 		settlementID:   &settlementID,
 		amount:         amount,
-		debit:          AccountJarReserved,
-		credit:         AccountJarAvailable,
+		legs:           transfer(AccountJarReserved, AccountJarAvailable, amount),
 	})
 }
 
@@ -162,12 +179,20 @@ func record(ctx context.Context, tx pgx.Tx, e entry) (Recorded, error) {
 }
 
 func lockAccounts(ctx context.Context, tx pgx.Tx, e entry) ([]lockedAccount, error) {
+	var userKinds, systemKinds []string
+	for _, l := range e.legs {
+		if isSystemAccount(l.account) {
+			systemKinds = append(systemKinds, string(l.account))
+		} else {
+			userKinds = append(userKinds, string(l.account))
+		}
+	}
 	rows, err := tx.Query(ctx, `
 		SELECT id, kind FROM ledger_accounts
-		WHERE (user_id = $1 AND kind = ANY($2)) OR (user_id IS NULL AND kind = ANY($2))
+		WHERE (user_id = $1 AND kind = ANY($2)) OR (user_id IS NULL AND kind = ANY($3))
 		ORDER BY id
 		FOR UPDATE`,
-		e.userID, []string{string(e.debit), string(e.credit)})
+		e.userID, userKinds, systemKinds)
 	if err != nil {
 		return nil, fmt.Errorf("lock ledger accounts: %w", err)
 	}
@@ -179,15 +204,14 @@ func lockAccounts(ctx context.Context, tx pgx.Tx, e entry) ([]lockedAccount, err
 	if err != nil {
 		return nil, fmt.Errorf("read ledger accounts: %w", err)
 	}
-	if len(accounts) != 2 {
+	if len(accounts) != len(e.legs) {
 		return nil, fmt.Errorf("%w: %s", ErrAccountsMissing, e.userID)
 	}
 	for index := range accounts {
-		switch accounts[index].kind {
-		case e.debit:
-			accounts[index].amount = -e.amount
-		case e.credit:
-			accounts[index].amount = e.amount
+		for _, l := range e.legs {
+			if l.account == accounts[index].kind {
+				accounts[index].amount = l.amount
+			}
 		}
 	}
 	return accounts, nil

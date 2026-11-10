@@ -62,7 +62,7 @@ func run() error {
 		Readiness:      database.SchemaReadiness(pool, expectedSchema),
 		DB:             pool,
 		Identity:       identityService,
-		Jars:           jars.NewService(pool, cfg.SettlementThreshold),
+		Jars:           jars.NewService(pool, cfg.SettlementThreshold, cfg.SettlementFee),
 		PayLinks:       paylinks.NewService(pool),
 		Network:        cfg.Network,
 		PublicWebURL:   cfg.PublicWebURL,

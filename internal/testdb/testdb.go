@@ -61,7 +61,7 @@ func Open(t *testing.T) *pgxpool.Pool {
 func Reset(t *testing.T, pool *pgxpool.Pool) {
 	t.Helper()
 	_, err := pool.Exec(context.Background(), `
-		TRUNCATE postings, journal_entries, incoming_transfers, simulated_chain_transfers, jar_watch_state, payment_links, cleva_destinations, jars, sessions RESTART IDENTITY CASCADE;
+		TRUNCATE postings, journal_entries, settlement_expenses, settlements, incoming_transfers, simulated_chain_transfers, jar_watch_state, payment_links, cleva_destinations, jars, sessions RESTART IDENTITY CASCADE;
 		ALTER TABLE ledger_accounts DISABLE TRIGGER ledger_accounts_no_delete;
 		DELETE FROM ledger_accounts WHERE user_id IS NOT NULL;
 		UPDATE ledger_accounts SET balance = 0;
@@ -129,6 +129,27 @@ func IncomingTransfer(t *testing.T, pool *pgxpool.Pool, userID uuid.UUID) uuid.U
 	).Scan(&id)
 	if err != nil {
 		t.Fatalf("create test incoming transfer: %v", err)
+	}
+	return id
+}
+
+func SettlementRef(t *testing.T, pool *pgxpool.Pool, userID uuid.UUID) uuid.UUID {
+	t.Helper()
+	ctx := context.Background()
+	var id uuid.UUID
+	err := pool.QueryRow(ctx, `
+		WITH destination AS (
+			INSERT INTO cleva_destinations (user_id, address) VALUES ($1, $2) RETURNING id, address
+		)
+		INSERT INTO settlements (user_id, network, jar_address, jar_index, destination_id, destination_address,
+		                         amount, fee, state, failed_at, failure_reason)
+		SELECT $1, 'simulated', $2, 0, destination.id, destination.address, 1, 0, 'failed', now(), 'test_fixture'
+		FROM destination
+		RETURNING id`,
+		userID, tron.SimulatedJarAddress(0),
+	).Scan(&id)
+	if err != nil {
+		t.Fatalf("create test settlement: %v", err)
 	}
 	return id
 }

@@ -35,6 +35,7 @@ type Summary struct {
 	Balances                 ledger.Balances
 	Pending                  usdt.Amount
 	SettlementThreshold      usdt.Amount
+	SettlementFee            usdt.Amount
 	RemainingUntilSettlement usdt.Amount
 	ClevaDestinationSet      bool
 }
@@ -47,10 +48,11 @@ type Destination struct {
 type Service struct {
 	pool                *pgxpool.Pool
 	settlementThreshold usdt.Amount
+	settlementFee       usdt.Amount
 }
 
-func NewService(pool *pgxpool.Pool, settlementThreshold usdt.Amount) *Service {
-	return &Service{pool: pool, settlementThreshold: settlementThreshold}
+func NewService(pool *pgxpool.Pool, settlementThreshold, settlementFee usdt.Amount) *Service {
+	return &Service{pool: pool, settlementThreshold: settlementThreshold, settlementFee: settlementFee}
 }
 
 func Create(ctx context.Context, tx pgx.Tx, userID uuid.UUID, network tron.Network) error {
@@ -184,6 +186,7 @@ func (s *Service) Summary(ctx context.Context, userID uuid.UUID) (Summary, error
 		Balances:                 balances,
 		Pending:                  pending,
 		SettlementThreshold:      s.settlementThreshold,
+		SettlementFee:            s.settlementFee,
 		RemainingUntilSettlement: max(s.settlementThreshold-balances.Available, 0),
 		ClevaDestinationSet:      destinationErr == nil,
 	}, nil

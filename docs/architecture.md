@@ -10,14 +10,14 @@ gigjar/
 ├── services/
 │   ├── api/                  HTTP API process (main package only)
 │   ├── watcher/              chain observation process
-│   ├── sweeper/              settlement process                   (Phase 4)
+│   ├── sweeper/              settlement process
 │   ├── migrate/              schema migration runner
-│   └── signer/               Node.js process wrapping Tether WDK   (Phase 4)
+│   └── signer/               Node.js process wrapping Tether WDK (holds the seed)
 ├── internal/                 shared Go packages (one Go module at the repo root)
 │   ├── config/  logging/  database/  httpapi/
 │   ├── identity/  jars/  ledger/  paylinks/  usdt/
 │   ├── chain/ (+ trongrid/, simulated/)  tron/  transfers/  watcher/
-│   └── settlement/  wallet/                     (Phase 4)
+│   └── settlement/  wallet/ (+ simwallet/, tronwallet/)  energy/ (+ tronsave/)
 ├── migrations/               SQL migrations, embedded into the Go binaries
 ├── packages/contracts/       OpenAPI contract shared by API and web
 ├── infra/docker/             Dockerfiles
@@ -201,3 +201,54 @@ Gas: a TRC20 transfer from the jar address needs TRX (energy and bandwidth). Bef
 - **Simulated chain.** `simulated_chain_transfers` stands in for the chain. `POST /v1/simulator/transfers` writes to it, and the simulated provider reads it with the same interface and semantics as TronGrid, including a configurable delay before a transfer is final. The route is mounted only on the simulated network, and production refuses that network.
 - **Public pending signal.** The public pay page reports `pending_payment_observed` when a pending transfer of exactly the link's amount has reached the jar since the link was created. It reveals nothing about other payments.
 - **Verified against Nile.** `make test-trongrid` runs the adapter and the full watcher against the live Nile testnet. Both tests are read-only. The watcher test points a jar at a public Nile address and credits a real solidified 1000 USDT transfer (block 72540166).
+
+## 11. Phase 4 decisions
+
+- **When a jar is swept.** A sweep is queued automatically once these three hold:
+  - `jar_available` ≥ `GIGJAR_SETTLEMENT_THRESHOLD` ($12 by default);
+  - the student has a Cleva address;
+  - the jar has an address.
+
+  It takes the whole available balance. The settlement row is created and the reserve entry posted in one transaction, under a lock on the available account. A partial unique index allows one in-flight sweep per student. There is no "sweep now" button, because every sweep costs the same fixed amount of energy.
+- **The fee stays in the jar.** Each sweep sends `amount − fee` to Cleva; the fee is $1 by default. The completion entry posts three lines: reserved −amount, settled +net, `platform_fees` +fee. The fee USDT physically stays at the jar address, because moving it would cost a second transfer. Reconciliation expects this: chain balance = available + reserved + confirmed fees. Collecting fees from jars is a later ops task.
+- **The Cleva address is locked when a sweep starts.** Each settlement copies the destination at queue time, so later changes never redirect a sweep in flight.
+- **Signing.** `services/signer` (Node, `@tetherto/wdk-wallet-tron` 1.0.0-beta.17) holds the seed:
+  - Jars are WDK accounts `m/44'/195'/0'/0/{derivation_index}`. The treasury is `m/44'/195'/1'/0/0`.
+  - Derivation matches the standard BIP-44 test vector.
+  - The signer only builds and signs transactions from narrow intents: a USDT transfer from jar N, or a capped TRX transfer from the treasury.
+  - It refuses token contracts and the treasury as recipients, requires a bearer token, and never broadcasts.
+  - It extends each transaction's expiry to about 10 minutes.
+  - **WDK supports signing without broadcasting** (`signTransaction`), which resolves the open question in §7.
+- **Settlement states.**
+  - **Queued:** resources are being prepared (below).
+  - **Signing:** the signed transaction and its tx id are saved **before** broadcast.
+  - **Broadcast:** it is rebroadcast while unconfirmed and not yet expired.
+  - **Confirmed:** only when the solidified transaction contains the exact USDT transfer jar → destination for the net amount.
+  - **Failed:** funds are released back to available. This happens only when the receipt failed, or the signed transaction expired and the node has never seen it. A final transaction without the expected transfer is never released; it is flagged for manual review.
+  - Failed jars cool down for 10 minutes before a retry, with at most 5 failures a day.
+- **Energy and gas, per sweep.**
+  1. If the jar account doesn't exist, the treasury sends 0.1 TRX, which activates it. TRON also charges a fixed 1.1 TRX account-creation fee. If an existing jar lacks bandwidth, it gets 0.4 TRX.
+  2. `triggerconstantcontract` estimates the exact energy for this transfer. That matched measured mainnet costs exactly: 64,285 energy to a holder, 130,285 to an empty address.
+  3. If the jar lacks that energy, it rents the estimate plus 5% from TronSave for 15 minutes. TronSave's minimum order is 65,000. Payment is a treasury-signed TRX transfer passed to TronSave's API, so no account is needed. The renter is refused above `GIGJAR_MAX_ENERGY_PRICE_SUN`.
+  4. If renting fails for any reason, or the energy doesn't arrive within 3 minutes, the treasury tops up the jar with enough TRX to burn instead. A rejected rental order costs nothing, because TronSave does not broadcast the payment.
+
+  Every TRX cost is recorded in `settlement_expenses`.
+- **Measured economics** (mainnet, 10 Nov 2026, TRX = $0.319):
+  - Burning costs 6.43 TRX ($2.05) to a USDT holder, or 13.03 TRX ($4.16) to an empty address.
+  - TronSave's floor price is 65 sun, which works out to about $1.36 or $2.72 for the same two cases.
+  - Cheaper markets list about 28–45 sun but need an account. `energy.Renter` is an interface, so a second provider can be added.
+  - A $1 fee does not yet cover a sweep to an empty address.
+- **Provisioning.** On real networks the sweeper derives addresses for new jars from the signer and starts watching them, usually within seconds of sign-up.
+- **Verified live on Nile, 10 Nov 2026** (`make test-nile-sweep`):
+  - A client paid 12 USDT into a fresh jar. The watcher credited it after about 1 minute, once the block was final.
+  - The sweeper activated the jar, rented 65,000 energy from TronSave, which was delegated within about 10 seconds, then signed, broadcast and confirmed the sweep about 1.5 minutes after queueing.
+  - The destination received exactly 11 USDT. The sweep receipt shows all of its energy came from the rental, bandwidth came from the jar's free allowance, and 0 TRX was burned.
+  - The treasury spent 5.425 TRX on the first sweep from that jar: 1.2 TRX activation and 4.225 TRX rental.
+- **Bugs the live runs found and fixed:**
+  - TronSave confirms orders with HTTP 201.
+  - TronSave's minimum order is 65,000.
+  - TronGrid's account endpoint omits unactivated addresses, so `TokenBalance` now calls `balanceOf` on solidified state.
+  - Activation needs only 0.1 TRX.
+- **Known gaps:**
+  - The treasury's own transactions use its 600 free daily bandwidth. After that each costs about 0.27 TRX, which is not yet recorded in `settlement_expenses`. Staking TRX for bandwidth removes it.
+  - Rolling back migrations 6 or 7 is refused once ledger deposits or settlements exist.

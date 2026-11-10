@@ -225,7 +225,14 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** @description Phase 4. */
+        /**
+         * @description Sweeps of the jar to the student's Cleva address, newest first. A sweep starts automatically once
+         *     `available` reaches `settlement_threshold` and a Cleva address is set. It moves the whole available
+         *     balance, sends `net_amount` (amount minus `fee`) to Cleva, and shows as `settling` on the jar until it ends.
+         *     `queued` means it is getting gas and energy ready; `signing` and `broadcast` mean the transaction is on its way;
+         *     `confirmed` means it is final on chain; `failed` means it never left the jar and the funds are back in `available`,
+         *     to be retried automatically later.
+         */
         get: operations["listSettlements"];
         put?: never;
         post?: never;
@@ -333,6 +340,8 @@ export interface components {
             network: components["schemas"]["Network"];
             balances: components["schemas"]["JarBalances"];
             settlement_threshold: components["schemas"]["UsdtAmount"];
+            /** @description Flat fee deducted from each sweep. The student receives the swept amount minus this. */
+            settlement_fee: components["schemas"]["UsdtAmount"];
             remaining_until_settlement: components["schemas"]["UsdtAmount"];
             cleva_destination_set: boolean;
         };
@@ -422,15 +431,21 @@ export interface components {
             /** Format: uuid */
             id: string;
             network: components["schemas"]["Network"];
+            /** @description Taken from the jar. */
             amount: components["schemas"]["UsdtAmount"];
+            fee: components["schemas"]["UsdtAmount"];
+            /** @description Sent to the Cleva address. */
+            net_amount: components["schemas"]["UsdtAmount"];
+            /** @description The Cleva address this sweep was locked to when it started. Later changes to the Cleva address do not affect it. */
             destination_address: components["schemas"]["TronAddress"];
             state: components["schemas"]["SettlementState"];
-            tx_id?: string | null;
-            failure_reason?: string | null;
+            /** @description TRON transaction id, once broadcast. Link it to a block explorer (tronscan.org, or nile.tronscan.org on Nile). */
+            tx_id: string | null;
+            failure_reason: string | null;
             /** Format: date-time */
             created_at: string;
             /** Format: date-time */
-            confirmed_at?: string | null;
+            confirmed_at: string | null;
         };
         PublicPaymentInstructions: {
             reference: string;

@@ -25,7 +25,7 @@ The browser only ever calls `/api/*`. `next.config.ts` rewrites that path to the
 
 ## Contract status
 
-Every operation in `openapi.yaml` has `x-status`. Everything is `implemented` except `GET /v1/settlements` (Phase 4), so build against the real API. Run `pnpm contracts` after pulling to refresh the generated types.
+Every operation in `openapi.yaml` is `implemented`, including `GET /v1/settlements` and `settlement_fee` on the jar, so build against the real API. Run `pnpm contracts` after pulling to refresh the generated types.
 
 ## Testing payments locally
 
@@ -39,6 +39,7 @@ curl -X POST localhost:8090/v1/simulator/transfers -H 'Content-Type: application
 - For the first ~20 seconds the jar shows it under `balances.pending`, `GET /v1/incoming-transfers` lists it as `pending`, and the public pay page returns `pending_payment_observed: true`.
 - Then the watcher confirms it. It moves to `balances.available`, the link becomes `paid` with `amount_received`, and a `deposit` appears in `GET /v1/transactions`.
 - Use `"to_address"` instead of `"reference"` for a payment that matches no link. Use `"outcome":"reverted"` to see a `failed` transfer.
+- Once a student with a Cleva address reaches $12 available, the sweeper starts a sweep. `balances.settling` shows the amount, and `GET /v1/settlements` shows it go `queued` → `broadcast` → `confirmed` (about 10s on the simulated network). After that, `settled` grows by the amount minus `settlement_fee`.
 
 The simulator route exists only on the simulated network. Never build UI that depends on it.
 

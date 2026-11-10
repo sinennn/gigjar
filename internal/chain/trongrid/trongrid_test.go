@@ -176,24 +176,42 @@ func TestErrorsNeverContainTheAPIKey(t *testing.T) {
 	}
 }
 
-func TestTokenBalance(t *testing.T) {
+func TestTokenBalanceCallsBalanceOfOnSolidifiedState(t *testing.T) {
 	client := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
-		io.WriteString(w, `{"success":true,"data":[{"trc20":[{"TTvwmPCRUg8ut6GNA2NiATsZATFjx1t4TC":"250000000"},{"TXYZopYRdj2D9XRtbG411XZZ3kM5VkAeBf":"2490000000"}]}]}`)
+		body, _ := io.ReadAll(r.Body)
+		if r.URL.Path != "/walletsolidity/triggerconstantcontract" || !strings.Contains(string(body), `"balanceOf(address)"`) ||
+			!strings.Contains(string(body), "000000000000000000000000b5131044ccc9d9600aa4384157017dd83496511e") {
+			t.Errorf("unexpected request %s %s", r.URL.Path, body)
+		}
+		io.WriteString(w, `{"result":{"result":true},"constant_result":["00000000000000000000000000000000000000000000000000000000946a6280"]}`)
 	})
 	balance, err := client.TokenBalance(context.Background(), jarAddress)
 	if err != nil || balance != usdt.MustParse("2490") {
 		t.Fatalf("balance = %s, %v", balance, err)
 	}
 
-	empty := newTestClient(t, func(w http.ResponseWriter, r *http.Request) { io.WriteString(w, `{"success":true,"data":[]}`) })
-	balance, err = empty.TokenBalance(context.Background(), jarAddress)
-	if err != nil || balance != 0 {
-		t.Fatalf("unactivated balance = %s, %v", balance, err)
+	failing := newTestClient(t, func(w http.ResponseWriter, r *http.Request) { io.WriteString(w, `{"result":{"result":false}}`) })
+	if _, err := failing.TokenBalance(context.Background(), jarAddress); !errors.Is(err, chain.ErrMalformed) {
+		t.Fatalf("err = %v", err)
 	}
 }
 
 func TestNewRefusesSimulatedNetwork(t *testing.T) {
 	if _, err := New(Config{BaseURL: "https://example.com", Network: tron.NetworkSimulated}); err == nil {
 		t.Fatal("expected error")
+	}
+}
+
+func TestEncodeTransferCallMatchesABI(t *testing.T) {
+	encoded, err := encodeTransferCall(jarAddress, 1_000_000)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "000000000000000000000000b5131044ccc9d9600aa4384157017dd83496511e00000000000000000000000000000000000000000000000000000000000f4240"
+	if encoded != want {
+		t.Fatalf("encoded = %s", encoded)
+	}
+	if _, err := encodeTransferCall(jarAddress, 0); err == nil {
+		t.Fatal("zero amount must be rejected")
 	}
 }

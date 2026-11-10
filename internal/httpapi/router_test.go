@@ -154,7 +154,7 @@ func TestCrossSiteWritesAreRejected(t *testing.T) {
 func TestPrivateRoutesRequireSession(t *testing.T) {
 	router := newTestRouter(func(context.Context) error { return nil })
 
-	for _, path := range []string{"/v1/me", "/v1/jar", "/v1/payment-links", "/v1/transactions", "/v1/incoming-transfers", "/v1/wallet/cleva"} {
+	for _, path := range []string{"/v1/me", "/v1/jar", "/v1/payment-links", "/v1/transactions", "/v1/incoming-transfers", "/v1/settlements", "/v1/wallet/cleva"} {
 		recorder := serve(router, http.MethodGet, path, nil)
 		if recorder.Code != http.StatusUnauthorized {
 			t.Errorf("%s status = %d, want 401", path, recorder.Code)

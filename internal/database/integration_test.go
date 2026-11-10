@@ -4,11 +4,15 @@ package database
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"log/slog"
+	"net/url"
 	"os"
 	"testing"
 	"time"
+
+	"github.com/jackc/pgx/v5"
 )
 
 func integrationDatabaseURL(t *testing.T) string {
@@ -20,11 +24,37 @@ func integrationDatabaseURL(t *testing.T) string {
 	return url
 }
 
+func scratchDatabase(t *testing.T) string {
+	t.Helper()
+	ctx := context.Background()
+	base := integrationDatabaseURL(t)
+	admin, err := pgx.Connect(ctx, base)
+	if err != nil {
+		t.Fatalf("connect: %v", err)
+	}
+	t.Cleanup(func() { admin.Close(context.Background()) })
+	name := fmt.Sprintf("gigjar_migrations_%d", time.Now().UnixNano())
+	if _, err := admin.Exec(ctx, "CREATE DATABASE "+name); err != nil {
+		t.Fatalf("create scratch database: %v", err)
+	}
+	t.Cleanup(func() {
+		if _, err := admin.Exec(context.Background(), "DROP DATABASE IF EXISTS "+name+" WITH (FORCE)"); err != nil {
+			t.Errorf("drop scratch database: %v", err)
+		}
+	})
+	parsed, err := url.Parse(base)
+	if err != nil {
+		t.Fatal(err)
+	}
+	parsed.Path = "/" + name
+	return parsed.String()
+}
+
 func TestMigrationsApplyRevertAndReapply(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	url := integrationDatabaseURL(t)
+	url := scratchDatabase(t)
 
 	migrator, err := NewMigrator(url, logger)
 	if err != nil {
@@ -108,5 +138,40 @@ func TestForbidMutationTriggerRejectsUpdatesAndDeletes(t *testing.T) {
 	}
 	if _, err := tx.Exec(ctx, `DELETE FROM immutable_probe`); err == nil {
 		t.Error("delete succeeded on an immutable table")
+	}
+}
+
+func TestRollbackRefusesToDestroySettlements(t *testing.T) {
+	ctx := context.Background()
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	url := scratchDatabase(t)
+	migrator, err := NewMigrator(url, logger)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer migrator.Close()
+	if err := migrator.Up(); err != nil {
+		t.Fatal(err)
+	}
+	conn, err := pgx.Connect(ctx, url)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close(ctx)
+	_, err = conn.Exec(ctx, `
+		WITH u AS (INSERT INTO users (email, password_hash, display_name) VALUES ('guard@test.gigjar', 'x', 'Guard') RETURNING id),
+		     d AS (INSERT INTO cleva_destinations (user_id, address) SELECT id, 'TSUe9LcY9ny9AXnR46ZSHxYiSE6neyhRXA' FROM u RETURNING id, user_id, address)
+		INSERT INTO settlements (user_id, network, jar_address, jar_index, destination_id, destination_address, amount, fee)
+		SELECT user_id, 'simulated', address, 1, id, address, 12000000, 1000000 FROM d`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = migrator.DownOne()
+	if err == nil {
+		t.Fatal("rolling back settlements with data must be refused")
+	}
+	var settlements int
+	if err := conn.QueryRow(ctx, `SELECT count(*) FROM settlements`).Scan(&settlements); err != nil || settlements != 1 {
+		t.Fatalf("settlement data must be untouched: %d, %v", settlements, err)
 	}
 }

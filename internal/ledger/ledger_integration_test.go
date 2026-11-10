@@ -70,7 +70,7 @@ func TestPitchDeckScenario(t *testing.T) {
 		t.Fatalf("available = %s, want 12", got.Available)
 	}
 
-	settlementID := uuid.New()
+	settlementID := testdb.SettlementRef(t, pool, student)
 	amount := usdt.MustParse("12")
 	if err := inTx(t, pool, func(tx pgx.Tx) error {
 		_, err := ledger.ReserveForSettlement(ctx, tx, student, settlementID, amount)
@@ -83,12 +83,12 @@ func TestPitchDeckScenario(t *testing.T) {
 	}
 
 	if err := inTx(t, pool, func(tx pgx.Tx) error {
-		_, err := ledger.CompleteSettlement(ctx, tx, student, settlementID, amount)
+		_, err := ledger.CompleteSettlement(ctx, tx, student, settlementID, amount, usdt.MustParse("1"))
 		return err
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if got := balancesOf(t, pool, student); got != (ledger.Balances{Settled: amount}) {
+	if got := balancesOf(t, pool, student); got != (ledger.Balances{Settled: usdt.MustParse("11")}) {
 		t.Fatalf("after completion: %+v", got)
 	}
 
@@ -110,6 +110,13 @@ func TestPitchDeckScenario(t *testing.T) {
 	}
 	if movements[1].AvailableDelta != -amount || movements[1].ReservedDelta != amount {
 		t.Errorf("reserve deltas = %+v", movements[1])
+	}
+	if movements[0].ReservedDelta != -amount || movements[0].SettledDelta != usdt.MustParse("11") {
+		t.Errorf("completion deltas = %+v", movements[0])
+	}
+	var fees int64
+	if err := pool.QueryRow(ctx, `SELECT balance FROM ledger_accounts WHERE kind = 'platform_fees'`).Scan(&fees); err != nil || usdt.Amount(fees) != usdt.MustParse("1") {
+		t.Errorf("platform fees = %d, %v", fees, err)
 	}
 
 	page, err := ledger.ListMovements(ctx, pool, student, movements[1].Sequence, 10)
@@ -158,7 +165,7 @@ func TestReserveCannotOverspend(t *testing.T) {
 	deposit(t, pool, student, "10")
 
 	err := inTx(t, pool, func(tx pgx.Tx) error {
-		_, err := ledger.ReserveForSettlement(context.Background(), tx, student, uuid.New(), usdt.MustParse("10.000001"))
+		_, err := ledger.ReserveForSettlement(context.Background(), tx, student, testdb.SettlementRef(t, pool, student), usdt.MustParse("10.000001"))
 		return err
 	})
 	if !errors.Is(err, ledger.ErrInsufficientFunds) {
@@ -175,7 +182,7 @@ func TestReleaseReturnsFundsToJar(t *testing.T) {
 	ctx := context.Background()
 	student := testdb.CreateUser(t, pool)
 	deposit(t, pool, student, "15")
-	settlementID := uuid.New()
+	settlementID := testdb.SettlementRef(t, pool, student)
 	amount := usdt.MustParse("15")
 
 	err := inTx(t, pool, func(tx pgx.Tx) error {
@@ -193,7 +200,7 @@ func TestReleaseReturnsFundsToJar(t *testing.T) {
 	}
 
 	err = inTx(t, pool, func(tx pgx.Tx) error {
-		_, err := ledger.CompleteSettlement(ctx, tx, student, settlementID, amount)
+		_, err := ledger.CompleteSettlement(ctx, tx, student, settlementID, amount, 0)
 		return err
 	})
 	if !errors.Is(err, ledger.ErrInsufficientFunds) {
@@ -216,9 +223,10 @@ func TestConcurrentReservesNeverDoubleSpend(t *testing.T) {
 		wait.Add(1)
 		go func() {
 			defer wait.Done()
+			settlementID := testdb.SettlementRef(t, pool, student)
 			<-start
 			err := inTx(t, pool, func(tx pgx.Tx) error {
-				_, err := ledger.ReserveForSettlement(context.Background(), tx, student, uuid.New(), usdt.MustParse("12"))
+				_, err := ledger.ReserveForSettlement(context.Background(), tx, student, settlementID, usdt.MustParse("12"))
 				return err
 			})
 			switch {
@@ -256,8 +264,9 @@ func TestConcurrentDepositsAndReservesStayConsistent(t *testing.T) {
 			}()
 			go func() {
 				defer wait.Done()
+				settlementID := testdb.SettlementRef(t, pool, student)
 				err := inTx(t, pool, func(tx pgx.Tx) error {
-					_, err := ledger.ReserveForSettlement(context.Background(), tx, student, uuid.New(), usdt.MustParse("1"))
+					_, err := ledger.ReserveForSettlement(context.Background(), tx, student, settlementID, usdt.MustParse("1"))
 					return err
 				})
 				if err != nil && !errors.Is(err, ledger.ErrInsufficientFunds) {
