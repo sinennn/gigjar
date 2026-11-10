@@ -45,6 +45,15 @@ type API struct {
 	SecureCookies       bool
 	SettlementThreshold usdt.Amount
 	SettlementFee       usdt.Amount
+	GoogleClientID      string
+	GoogleClientSecret  string
+	GoogleRedirectURL   string
+	GroqAPIKey          string
+	GroqModel           string
+}
+
+func (a API) GoogleEnabled() bool {
+	return a.GoogleClientID != "" && a.GoogleClientSecret != ""
 }
 
 type Migrate struct {
@@ -81,6 +90,17 @@ func LoadAPI(lookup LookupFunc) (API, error) {
 		SessionTTL:         reader.duration("GIGJAR_SESSION_TTL", 30*24*time.Hour),
 	}
 	cfg.SettlementThreshold, cfg.SettlementFee = readSettlement(reader)
+	cfg.GoogleClientID = reader.string("GIGJAR_GOOGLE_CLIENT_ID", "")
+	cfg.GoogleClientSecret = reader.string("GIGJAR_GOOGLE_CLIENT_SECRET", "")
+	cfg.GoogleRedirectURL = reader.string("GIGJAR_GOOGLE_REDIRECT_URL", cfg.PublicWebURL+"/api/v1/auth/google/callback")
+	if (cfg.GoogleClientID == "") != (cfg.GoogleClientSecret == "") {
+		reader.fail("GIGJAR_GOOGLE_CLIENT_ID", "and GIGJAR_GOOGLE_CLIENT_SECRET must be set together")
+	}
+	if parsed, err := url.Parse(cfg.GoogleRedirectURL); err != nil || parsed.Scheme == "" || parsed.Host == "" {
+		reader.fail("GIGJAR_GOOGLE_REDIRECT_URL", "must be an absolute URL")
+	}
+	cfg.GroqAPIKey = reader.string("GIGJAR_GROQ_API_KEY", "")
+	cfg.GroqModel = reader.string("GIGJAR_GROQ_MODEL", "openai/gpt-oss-20b")
 	cfg.SecureCookies = reader.boolean("GIGJAR_SECURE_COOKIES", cfg.Environment.IsProduction())
 	reader.requirePositive("GIGJAR_SESSION_TTL", cfg.SessionTTL)
 	if parsed, err := url.Parse(cfg.PublicWebURL); err != nil || parsed.Scheme == "" || parsed.Host == "" {

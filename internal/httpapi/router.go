@@ -10,7 +10,9 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/go-chi/cors"
 
+	"gigjar/internal/ai"
 	"gigjar/internal/database"
+	"gigjar/internal/googleauth"
 	"gigjar/internal/identity"
 	"gigjar/internal/jars"
 	"gigjar/internal/paylinks"
@@ -29,6 +31,8 @@ type RouterConfig struct {
 	Network        tron.Network
 	PublicWebURL   string
 	SecureCookies  bool
+	Google         *googleauth.Client
+	AI             *ai.Service
 }
 
 type api struct {
@@ -41,6 +45,10 @@ type api struct {
 	publicWebURL  string
 	secureCookies bool
 	loginAttempts *attemptLimiter
+	google        *googleauth.Client
+	ai            *ai.Service
+	aiPerUser     *attemptLimiter
+	aiGlobal      *attemptLimiter
 }
 
 func NewRouter(cfg RouterConfig) (http.Handler, error) {
@@ -83,6 +91,10 @@ func NewRouter(cfg RouterConfig) (http.Handler, error) {
 		publicWebURL:  cfg.PublicWebURL,
 		secureCookies: cfg.SecureCookies,
 		loginAttempts: newAttemptLimiter(10, time.Minute),
+		google:        cfg.Google,
+		ai:            cfg.AI,
+		aiPerUser:     newAttemptLimiter(30, time.Hour),
+		aiGlobal:      newAttemptLimiter(25, time.Minute),
 	}
 
 	router.Route("/v1", func(v1 chi.Router) {
@@ -91,6 +103,9 @@ func NewRouter(cfg RouterConfig) (http.Handler, error) {
 		v1.Post("/auth/register", a.register)
 		v1.Post("/auth/login", a.login)
 		v1.Post("/auth/logout", a.logout)
+		v1.Get("/auth/providers", a.getProviders)
+		v1.Get("/auth/google/start", a.startGoogleSignIn)
+		v1.Get("/auth/google/callback", a.finishGoogleSignIn)
 		v1.Get("/public/pay/{reference}", a.getPublicPayment)
 		if cfg.Network.IsSimulated() {
 			v1.Post("/simulator/transfers", a.sendSimulatedTransfer)
@@ -110,6 +125,9 @@ func NewRouter(cfg RouterConfig) (http.Handler, error) {
 			private.Get("/transactions", a.listTransactions)
 			private.Get("/incoming-transfers", a.listIncomingTransfers)
 			private.Get("/settlements", a.listSettlements)
+			private.Post("/ai/link-draft", a.draftPaymentLink)
+			private.Get("/ai/insights", a.getInsights)
+			private.Post("/ai/assistant", a.askAssistant)
 		})
 	})
 
