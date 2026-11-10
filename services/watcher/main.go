@@ -4,22 +4,15 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log/slog"
 	"os"
 	"os/signal"
 	"syscall"
-	"time"
 
-	"github.com/jackc/pgx/v5/pgxpool"
-
-	"gigjar/internal/chain"
-	"gigjar/internal/chain/simulated"
-	"gigjar/internal/chain/trongrid"
+	"gigjar/internal/app"
 	"gigjar/internal/config"
 	"gigjar/internal/database"
 	"gigjar/internal/jars"
 	"gigjar/internal/logging"
-	"gigjar/internal/watcher"
 )
 
 const usage = "usage: watcher [run|reconcile]"
@@ -55,12 +48,7 @@ func run(args []string) error {
 	}
 	defer pool.Close()
 
-	if err := waitForSchema(ctx, pool, logger); err != nil {
-		return err
-	}
-
-	provider, err := newProvider(cfg, pool)
-	if err != nil {
+	if err := app.WaitForSchema(ctx, pool, logger); err != nil {
 		return err
 	}
 
@@ -74,15 +62,10 @@ func run(args []string) error {
 		}
 	}
 
-	watcherConfig := watcher.DefaultConfig()
-	watcherConfig.Tick = cfg.Tick
-	watcherConfig.BatchSize = cfg.BatchSize
-	watcherConfig.ActivePollInterval = cfg.ActivePollInterval
-	watcherConfig.IdlePollInterval = cfg.IdlePollInterval
-	watcherConfig.CursorOverlap = cfg.CursorOverlap
-	watcherConfig.DropAfter = cfg.DropAfter
-	watcherConfig.ReconcileInterval = cfg.ReconcileInterval
-	w := watcher.New(pool, provider, logger, watcherConfig)
+	w, err := app.NewWatcher(cfg, pool, logger)
+	if err != nil {
+		return err
+	}
 
 	if command == "reconcile" {
 		report, err := w.ReconcileOnce(ctx)
@@ -100,31 +83,4 @@ func run(args []string) error {
 	err = w.Run(ctx)
 	logger.Info("watcher stopped")
 	return err
-}
-
-func newProvider(cfg config.Watcher, pool *pgxpool.Pool) (chain.Provider, error) {
-	if cfg.Network.IsSimulated() {
-		return simulated.NewProvider(pool), nil
-	}
-	return trongrid.New(trongrid.Config{BaseURL: cfg.TronGridURL, APIKey: cfg.TronGridAPIKey, Network: cfg.Network})
-}
-
-func waitForSchema(ctx context.Context, pool *pgxpool.Pool, logger *slog.Logger) error {
-	expected, err := database.LatestEmbeddedVersion()
-	if err != nil {
-		return err
-	}
-	probe := database.SchemaReadiness(pool, expected)
-	for {
-		err := probe(ctx)
-		if err == nil {
-			return nil
-		}
-		logger.Warn("waiting for database schema", "expected_version", expected, "error", err)
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-time.After(3 * time.Second):
-		}
-	}
 }

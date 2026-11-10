@@ -55,8 +55,9 @@ const handle = createApp({
 
 const port = Number(process.env.GIGJAR_SIGNER_PORT || process.env.PORT || 8081)
 const server = http.createServer((request, response) => { handle(request, response) })
-server.listen(port, async () => {
-  log('INFO', { msg: 'signer listening', port, network, treasury: await signer.treasuryAddress() })
+const host = process.env.GIGJAR_SIGNER_HOST?.trim() || '0.0.0.0'
+server.listen(port, host, async () => {
+  log('INFO', { msg: 'signer listening', host, port, network, treasury: await signer.treasuryAddress() })
 })
 
 for (const signal of ['SIGINT', 'SIGTERM']) {

@@ -9,13 +9,10 @@ import (
 	"os/signal"
 	"syscall"
 
+	"gigjar/internal/app"
 	"gigjar/internal/config"
 	"gigjar/internal/database"
-	"gigjar/internal/httpapi"
-	"gigjar/internal/identity"
-	"gigjar/internal/jars"
 	"gigjar/internal/logging"
-	"gigjar/internal/paylinks"
 )
 
 func main() {
@@ -41,33 +38,7 @@ func run() error {
 	}
 	defer pool.Close()
 
-	expectedSchema, err := database.LatestEmbeddedVersion()
-	if err != nil {
-		return err
-	}
-
-	identityService, err := identity.NewService(pool, identity.Config{
-		PasswordParams: identity.DefaultPasswordParams,
-		SessionTTL:     cfg.SessionTTL,
-		Network:        cfg.Network,
-	})
-	if err != nil {
-		return err
-	}
-
-	handler, err := httpapi.NewRouter(httpapi.RouterConfig{
-		Logger:         logger,
-		AllowedOrigins: cfg.CORSAllowedOrigins,
-		RequestTimeout: cfg.RequestTimeout,
-		Readiness:      database.SchemaReadiness(pool, expectedSchema),
-		DB:             pool,
-		Identity:       identityService,
-		Jars:           jars.NewService(pool, cfg.SettlementThreshold, cfg.SettlementFee),
-		PayLinks:       paylinks.NewService(pool),
-		Network:        cfg.Network,
-		PublicWebURL:   cfg.PublicWebURL,
-		SecureCookies:  cfg.SecureCookies,
-	})
+	handler, err := app.NewAPIHandler(cfg, pool, logger)
 	if err != nil {
 		return err
 	}

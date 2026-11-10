@@ -21,100 +21,18 @@ databases:
     postgresMajorVersion: "16"
 
 services:
-  - type: pserv
-    name: gigjar-signer
-    runtime: node
-    plan: starter
-    region: frankfurt
-    rootDir: services/signer
-    buildCommand: corepack enable && pnpm install --frozen-lockfile --prod
-    startCommand: node src/server.js
-    autoDeployTrigger: commit
-    buildFilter:
-      paths:
-        - services/signer/**
-    envVars:
-      - key: NODE_VERSION
-        value: "22"
-      - key: GIGJAR_CHAIN_NETWORK
-        value: tron-nile
-      - key: GIGJAR_SIGNER_PORT
-        value: "8081"
-      - key: GIGJAR_SIGNER_TOKEN
-        generateValue: true
-      - key: GIGJAR_SIGNER_SEED
-        sync: false
-      - key: GIGJAR_TRONGRID_API_KEY
-        sync: false
-
-  - type: worker
-    name: gigjar-watcher
-    runtime: go
-    plan: starter
-    region: frankfurt
-    buildCommand: go build -trimpath -o bin/watcher ./services/watcher && go build -trimpath -o bin/migrate ./services/migrate
-    preDeployCommand: ./bin/migrate up
-    startCommand: ./bin/watcher run
-    autoDeployTrigger: commit
-    buildFilter:
-      ignoredPaths:
-        - apps/**
-        - services/signer/**
-        - docs/**
-    envVars:
-      - fromGroup: gigjar-common
-      - key: GIGJAR_DATABASE_URL
-        fromDatabase:
-          name: gigjar-db
-          property: connectionString
-      - key: GIGJAR_TRONGRID_API_KEY
-        sync: false
-
-  - type: worker
-    name: gigjar-sweeper
-    runtime: go
-    plan: starter
-    region: frankfurt
-    buildCommand: go build -trimpath -o bin/sweeper ./services/sweeper
-    startCommand: ./bin/sweeper
-    autoDeployTrigger: commit
-    buildFilter:
-      ignoredPaths:
-        - apps/**
-        - services/signer/**
-        - docs/**
-    envVars:
-      - fromGroup: gigjar-common
-      - key: GIGJAR_DATABASE_URL
-        fromDatabase:
-          name: gigjar-db
-          property: connectionString
-      - key: GIGJAR_TRONGRID_API_KEY
-        sync: false
-      - key: GIGJAR_SIGNER_URL
-        fromService:
-          type: pserv
-          name: gigjar-signer
-          property: hostport
-      - key: GIGJAR_SIGNER_TOKEN
-        fromService:
-          type: pserv
-          name: gigjar-signer
-          envVarKey: GIGJAR_SIGNER_TOKEN
-
   - type: web
     name: gigjar-api
-    runtime: go
+    runtime: docker
     plan: free
     region: frankfurt
-    buildCommand: go build -trimpath -o bin/api ./services/api
-    startCommand: ./bin/api
+    dockerfilePath: ./infra/docker/render.Dockerfile
+    dockerContext: .
     healthCheckPath: /healthz
     autoDeployTrigger: commit
     buildFilter:
       ignoredPaths:
         - apps/**
-        - services/signer/**
         - docs/**
     envVars:
       - fromGroup: gigjar-common
@@ -128,6 +46,12 @@ services:
         value: https://gigjar-web.onrender.com
       - key: GIGJAR_CORS_ALLOWED_ORIGINS
         value: https://gigjar-web.onrender.com
+      - key: GIGJAR_SIGNER_TOKEN
+        generateValue: true
+      - key: GIGJAR_SIGNER_SEED
+        sync: false
+      - key: GIGJAR_TRONGRID_API_KEY
+        sync: false
 
   - type: web
     name: gigjar-web
