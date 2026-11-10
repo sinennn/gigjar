@@ -119,7 +119,7 @@ func TestLoadAPIFinancialDefaults(t *testing.T) {
 	if cfg.Network != tron.NetworkSimulated {
 		t.Errorf("network = %s, want simulated in development", cfg.Network)
 	}
-	if cfg.SettlementThreshold != usdt.MustParse("11") {
+	if cfg.SettlementThreshold != usdt.MustParse("12") || cfg.SettlementFee != usdt.MustParse("1") {
 		t.Errorf("threshold = %s", cfg.SettlementThreshold)
 	}
 	if cfg.SecureCookies {
@@ -132,7 +132,7 @@ func TestProductionGuards(t *testing.T) {
 		"GIGJAR_ENV":                  "production",
 		"GIGJAR_DATABASE_URL":         "postgres://db/gigjar",
 		"GIGJAR_SECURE_COOKIES":       "false",
-		"GIGJAR_SETTLEMENT_THRESHOLD": "10",
+		"GIGJAR_SETTLEMENT_THRESHOLD": "11",
 	}))
 	if err == nil {
 		t.Fatal("expected production guard errors")
@@ -195,5 +195,44 @@ func TestLoadWatcherRejectsBadValues(t *testing.T) {
 		if !strings.Contains(err.Error(), key) {
 			t.Errorf("error does not mention %s: %v", key, err)
 		}
+	}
+}
+
+func TestLoadSweeperSimulatedDefaults(t *testing.T) {
+	cfg, err := LoadSweeper(lookupFrom(map[string]string{"GIGJAR_DATABASE_URL": "postgres://localhost/gigjar"}))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg.SettlementThreshold != usdt.MustParse("12") || cfg.SettlementFee != usdt.MustParse("1") || cfg.SignerURL != "" {
+		t.Errorf("unexpected config: %+v", cfg)
+	}
+}
+
+func TestLoadSweeperRealNetworkNeedsSignerAndKey(t *testing.T) {
+	_, err := LoadSweeper(lookupFrom(map[string]string{
+		"GIGJAR_DATABASE_URL":   "postgres://localhost/gigjar",
+		"GIGJAR_CHAIN_NETWORK":  "tron-nile",
+		"GIGJAR_SIGNER_TOKEN":   "short",
+		"GIGJAR_SETTLEMENT_FEE": "3",
+	}))
+	if err == nil {
+		t.Fatal("expected errors")
+	}
+	for _, key := range []string{"GIGJAR_TRONGRID_API_KEY", "GIGJAR_SIGNER_TOKEN", "GIGJAR_SETTLEMENT_THRESHOLD"} {
+		if !strings.Contains(err.Error(), key) {
+			t.Errorf("error does not mention %s: %v", key, err)
+		}
+	}
+	cfg, err := LoadSweeper(lookupFrom(map[string]string{
+		"GIGJAR_DATABASE_URL":     "postgres://localhost/gigjar",
+		"GIGJAR_CHAIN_NETWORK":    "tron-nile",
+		"GIGJAR_TRONGRID_API_KEY": "key",
+		"GIGJAR_SIGNER_TOKEN":     strings.Repeat("t", 40),
+	}))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg.EnergyProvider != "tronsave" || cfg.MaxEnergyPriceSun != 90 || cfg.SignerURL != "http://signer:8081" {
+		t.Errorf("unexpected config: %+v", cfg)
 	}
 }

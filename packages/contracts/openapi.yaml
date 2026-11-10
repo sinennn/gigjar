@@ -299,8 +299,14 @@ paths:
     get:
       tags: [history]
       operationId: listSettlements
-      x-status: planned
-      description: Phase 4.
+      x-status: implemented
+      description: |
+        Sweeps of the jar to the student's Cleva address, newest first. A sweep starts automatically once
+        `available` reaches `settlement_threshold` and a Cleva address is set. It moves the whole available
+        balance, sends `net_amount` (amount minus `fee`) to Cleva, and shows as `settling` on the jar until it ends.
+        `queued` means it is getting gas and energy ready; `signing` and `broadcast` mean the transaction is on its way;
+        `confirmed` means it is final on chain; `failed` means it never left the jar and the funds are back in `available`,
+        to be retried automatically later.
       parameters:
         - $ref: "#/components/parameters/Cursor"
         - $ref: "#/components/parameters/Limit"
@@ -491,7 +497,7 @@ components:
 
     Jar:
       type: object
-      required: [address, network, balances, settlement_threshold, remaining_until_settlement, cleva_destination_set]
+      required: [address, network, balances, settlement_threshold, settlement_fee, remaining_until_settlement, cleva_destination_set]
       properties:
         address:
           description: Null until the jar's TRON address is provisioned. On the simulated network it is assigned at sign-up; on real networks the wallet service assigns it (Phase 4).
@@ -501,6 +507,9 @@ components:
         network: { $ref: "#/components/schemas/Network" }
         balances: { $ref: "#/components/schemas/JarBalances" }
         settlement_threshold: { $ref: "#/components/schemas/UsdtAmount" }
+        settlement_fee:
+          allOf: [{ $ref: "#/components/schemas/UsdtAmount" }]
+          description: Flat fee deducted from each sweep. The student receives the swept amount minus this.
         remaining_until_settlement: { $ref: "#/components/schemas/UsdtAmount" }
         cleva_destination_set: { type: boolean }
 
@@ -615,14 +624,24 @@ components:
 
     Settlement:
       type: object
-      required: [id, network, amount, destination_address, state, created_at]
+      required: [id, network, amount, fee, net_amount, destination_address, state, tx_id, failure_reason, created_at, confirmed_at]
       properties:
         id: { type: string, format: uuid }
         network: { $ref: "#/components/schemas/Network" }
-        amount: { $ref: "#/components/schemas/UsdtAmount" }
-        destination_address: { $ref: "#/components/schemas/TronAddress" }
+        amount:
+          allOf: [{ $ref: "#/components/schemas/UsdtAmount" }]
+          description: Taken from the jar.
+        fee: { $ref: "#/components/schemas/UsdtAmount" }
+        net_amount:
+          allOf: [{ $ref: "#/components/schemas/UsdtAmount" }]
+          description: Sent to the Cleva address.
+        destination_address:
+          allOf: [{ $ref: "#/components/schemas/TronAddress" }]
+          description: The Cleva address this sweep was locked to when it started. Later changes to the Cleva address do not affect it.
         state: { $ref: "#/components/schemas/SettlementState" }
-        tx_id: { type: [string, "null"] }
+        tx_id:
+          type: [string, "null"]
+          description: TRON transaction id, once broadcast. Link it to a block explorer (tronscan.org, or nile.tronscan.org on Nile).
         failure_reason: { type: [string, "null"] }
         created_at: { type: string, format: date-time }
         confirmed_at: { type: [string, "null"], format: date-time }

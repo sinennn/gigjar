@@ -1,9 +1,9 @@
 SHELL := /bin/bash
 DATABASE_URL ?= postgres://gigjar:gigjar@localhost:55432/gigjar?sslmode=disable
 TEST_DATABASE_URL ?= postgres://gigjar:gigjar@localhost:55432/gigjar_test?sslmode=disable
-GO_SERVICES := api migrate watcher
+GO_SERVICES := api migrate watcher sweeper
 
-.PHONY: help up down logs db-up migrate migrate-down-one migrate-version migration run-api run-watcher reconcile build test test-integration test-trongrid fmt fmt-check vet check web-install web-dev web-build contracts
+.PHONY: help up down logs db-up migrate migrate-down-one migrate-version migration run-api run-watcher run-sweeper reconcile signer-install signer-test build test test-integration test-trongrid test-nile-sweep fmt fmt-check vet check web-install web-dev web-build contracts
 
 help:
 	@grep -E '^[a-zA-Z_-]+:' Makefile | cut -d: -f1 | sort
@@ -41,6 +41,9 @@ run-api: migrate
 run-watcher: migrate
 	GIGJAR_DATABASE_URL="$(DATABASE_URL)" GIGJAR_LOG_FORMAT=text go run ./services/watcher run
 
+run-sweeper: migrate
+	GIGJAR_DATABASE_URL="$(DATABASE_URL)" GIGJAR_LOG_FORMAT=text go run ./services/sweeper
+
 reconcile: db-up
 	GIGJAR_DATABASE_URL="$(DATABASE_URL)" GIGJAR_LOG_FORMAT=text go run ./services/watcher reconcile
 
@@ -60,6 +63,9 @@ test-trongrid:
 	GIGJAR_TRONGRID_API_KEY="$$key" go test -count=1 -tags trongrid -run Live -v ./internal/chain/trongrid/ && \
 	GIGJAR_TRONGRID_API_KEY="$$key" GIGJAR_TEST_DATABASE_URL="$(TEST_DATABASE_URL)" go test -count=1 -p 1 -tags "integration trongrid" -run Live -v ./internal/watcher/
 
+test-nile-sweep: db-up
+	./scripts/test-nile-sweep.sh
+
 fmt:
 	gofmt -w internal services migrations
 
@@ -70,9 +76,15 @@ vet:
 	go vet ./...
 	go vet -tags integration ./...
 	go vet -tags trongrid ./internal/chain/trongrid/
-	go vet -tags "integration trongrid" ./internal/watcher/
+	go vet -tags "integration trongrid" ./internal/watcher/ ./internal/settlement/
 
-check: fmt-check vet test
+check: fmt-check vet test signer-test
+
+signer-install:
+	pnpm --dir services/signer install
+
+signer-test:
+	pnpm --dir services/signer test
 
 web-install:
 	pnpm --dir apps/web install

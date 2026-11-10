@@ -278,38 +278,38 @@ func (c *Client) interpret(hash string, info transactionInfo) (chain.Outcome, er
 	return outcome, nil
 }
 
-type accountResponse struct {
-	Success bool `json:"success"`
-	Data    []struct {
-		TRC20 []map[string]string `json:"trc20"`
-	} `json:"data"`
-}
-
 func (c *Client) TokenBalance(ctx context.Context, address tron.Address) (usdt.Amount, error) {
-	if _, err := tron.ParseAddress(string(address)); err != nil {
+	holder, err := address.Hex20()
+	if err != nil {
 		return 0, err
 	}
-	var response accountResponse
-	endpoint := c.baseURL + "/v1/accounts/" + url.PathEscape(string(address)) + "?only_confirmed=true"
-	if err := c.do(ctx, http.MethodGet, endpoint, nil, &response); err != nil {
+	var response struct {
+		Result struct {
+			Result bool `json:"result"`
+		} `json:"result"`
+		ConstantResult []string `json:"constant_result"`
+	}
+	body, err := json.Marshal(map[string]any{
+		"owner_address":     address,
+		"contract_address":  c.contract,
+		"function_selector": "balanceOf(address)",
+		"parameter":         strings.Repeat("0", 24) + holder,
+		"visible":           true,
+	})
+	if err != nil {
 		return 0, err
 	}
-	if !response.Success {
-		return 0, fmt.Errorf("%w: account lookup reported success=false", chain.ErrMalformed)
+	if err := c.do(ctx, http.MethodPost, c.baseURL+"/walletsolidity/triggerconstantcontract", body, &response); err != nil {
+		return 0, err
 	}
-	if len(response.Data) == 0 {
-		return 0, nil
+	if !response.Result.Result || len(response.ConstantResult) != 1 {
+		return 0, fmt.Errorf("%w: balanceOf call for %s did not succeed", chain.ErrMalformed, address)
 	}
-	for _, holding := range response.Data[0].TRC20 {
-		if value, ok := holding[string(c.contract)]; ok {
-			amount, err := parseUint(value, 10)
-			if err != nil {
-				return 0, fmt.Errorf("%w: balance of %s: %v", chain.ErrMalformed, address, err)
-			}
-			return amount, nil
-		}
+	amount, err := parseUint(response.ConstantResult[0], 16)
+	if err != nil {
+		return 0, fmt.Errorf("%w: balance of %s: %v", chain.ErrMalformed, address, err)
 	}
-	return 0, nil
+	return amount, nil
 }
 
 func (c *Client) do(ctx context.Context, method, endpoint string, body []byte, target any) error {

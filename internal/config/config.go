@@ -13,7 +13,7 @@ import (
 	"gigjar/internal/usdt"
 )
 
-var minimumSettlementThreshold = usdt.MustParse("10.000001")
+var clevaMinimumDeposit = usdt.MustParse("10")
 
 type Environment string
 
@@ -44,6 +44,7 @@ type API struct {
 	SessionTTL          time.Duration
 	SecureCookies       bool
 	SettlementThreshold usdt.Amount
+	SettlementFee       usdt.Amount
 }
 
 type Migrate struct {
@@ -70,21 +71,18 @@ func (e Environment) IsProduction() bool {
 func LoadAPI(lookup LookupFunc) (API, error) {
 	reader := newReader(lookup)
 	cfg := API{
-		Common:              readCommon(reader),
-		HTTPAddr:            reader.string("GIGJAR_HTTP_ADDR", ":8080"),
-		CORSAllowedOrigins:  reader.list("GIGJAR_CORS_ALLOWED_ORIGINS", []string{"http://localhost:3000"}),
-		ReadHeaderTimeout:   reader.duration("GIGJAR_HTTP_READ_HEADER_TIMEOUT", 5*time.Second),
-		RequestTimeout:      reader.duration("GIGJAR_HTTP_REQUEST_TIMEOUT", 15*time.Second),
-		ShutdownTimeout:     reader.duration("GIGJAR_SHUTDOWN_TIMEOUT", 20*time.Second),
-		PublicWebURL:        strings.TrimRight(reader.string("GIGJAR_PUBLIC_WEB_URL", "http://localhost:3000"), "/"),
-		SessionTTL:          reader.duration("GIGJAR_SESSION_TTL", 30*24*time.Hour),
-		SettlementThreshold: reader.amount("GIGJAR_SETTLEMENT_THRESHOLD", usdt.MustParse("11")),
+		Common:             readCommon(reader),
+		HTTPAddr:           reader.string("GIGJAR_HTTP_ADDR", ":8080"),
+		CORSAllowedOrigins: reader.list("GIGJAR_CORS_ALLOWED_ORIGINS", []string{"http://localhost:3000"}),
+		ReadHeaderTimeout:  reader.duration("GIGJAR_HTTP_READ_HEADER_TIMEOUT", 5*time.Second),
+		RequestTimeout:     reader.duration("GIGJAR_HTTP_REQUEST_TIMEOUT", 15*time.Second),
+		ShutdownTimeout:    reader.duration("GIGJAR_SHUTDOWN_TIMEOUT", 20*time.Second),
+		PublicWebURL:       strings.TrimRight(reader.string("GIGJAR_PUBLIC_WEB_URL", "http://localhost:3000"), "/"),
+		SessionTTL:         reader.duration("GIGJAR_SESSION_TTL", 30*24*time.Hour),
 	}
+	cfg.SettlementThreshold, cfg.SettlementFee = readSettlement(reader)
 	cfg.SecureCookies = reader.boolean("GIGJAR_SECURE_COOKIES", cfg.Environment.IsProduction())
 	reader.requirePositive("GIGJAR_SESSION_TTL", cfg.SessionTTL)
-	if cfg.SettlementThreshold < minimumSettlementThreshold {
-		reader.fail("GIGJAR_SETTLEMENT_THRESHOLD", "must be above Cleva's 10 USDT minimum deposit")
-	}
 	if parsed, err := url.Parse(cfg.PublicWebURL); err != nil || parsed.Scheme == "" || parsed.Host == "" {
 		reader.fail("GIGJAR_PUBLIC_WEB_URL", "must be an absolute URL")
 	}
@@ -107,6 +105,63 @@ func LoadAPI(lookup LookupFunc) (API, error) {
 func LoadMigrate(lookup LookupFunc) (Migrate, error) {
 	reader := newReader(lookup)
 	cfg := Migrate{Common: readCommon(reader)}
+	return cfg, reader.err()
+}
+
+type Sweeper struct {
+	Common
+	SettlementThreshold   usdt.Amount
+	SettlementFee         usdt.Amount
+	Tick                  time.Duration
+	BatchSize             int
+	SimulatedConfirmDelay time.Duration
+	TronGridURL           string
+	TronGridAPIKey        string
+	SignerURL             string
+	SignerToken           string
+	EnergyProvider        string
+	TronSaveURL           string
+	MaxEnergyPriceSun     float64
+	EnergyRentalSeconds   int
+}
+
+func LoadSweeper(lookup LookupFunc) (Sweeper, error) {
+	reader := newReader(lookup)
+	cfg := Sweeper{
+		Common:                readCommon(reader),
+		Tick:                  reader.duration("GIGJAR_SWEEPER_TICK", 3*time.Second),
+		BatchSize:             reader.integer("GIGJAR_SWEEPER_BATCH_SIZE", 20),
+		SimulatedConfirmDelay: reader.duration("GIGJAR_SIMULATED_SWEEP_DELAY", 10*time.Second),
+	}
+	cfg.SettlementThreshold, cfg.SettlementFee = readSettlement(reader)
+	reader.requirePositive("GIGJAR_SWEEPER_TICK", cfg.Tick)
+	if cfg.BatchSize < 1 || cfg.BatchSize > 500 {
+		reader.fail("GIGJAR_SWEEPER_BATCH_SIZE", "must be between 1 and 500")
+	}
+	if defaultTronGridURL, ok := trongrid.DefaultBaseURL(cfg.Network); ok {
+		cfg.TronGridURL = strings.TrimRight(reader.string("GIGJAR_TRONGRID_URL", defaultTronGridURL), "/")
+		cfg.TronGridAPIKey = reader.required("GIGJAR_TRONGRID_API_KEY")
+		cfg.SignerURL = strings.TrimRight(reader.string("GIGJAR_SIGNER_URL", "http://signer:8081"), "/")
+		cfg.SignerToken = reader.required("GIGJAR_SIGNER_TOKEN")
+		if len(cfg.SignerToken) < 32 {
+			reader.fail("GIGJAR_SIGNER_TOKEN", "must be at least 32 characters")
+		}
+		cfg.EnergyProvider = strings.ToLower(reader.string("GIGJAR_ENERGY_PROVIDER", "tronsave"))
+		switch cfg.EnergyProvider {
+		case "tronsave", "none":
+		default:
+			reader.fail("GIGJAR_ENERGY_PROVIDER", "must be tronsave or none")
+		}
+		cfg.TronSaveURL = strings.TrimRight(reader.string("GIGJAR_TRONSAVE_URL", ""), "/")
+		cfg.MaxEnergyPriceSun = float64(reader.integer("GIGJAR_MAX_ENERGY_PRICE_SUN", 90))
+		cfg.EnergyRentalSeconds = reader.integer("GIGJAR_ENERGY_RENTAL_SECONDS", 900)
+		if cfg.MaxEnergyPriceSun <= 0 || cfg.MaxEnergyPriceSun >= 100 {
+			reader.fail("GIGJAR_MAX_ENERGY_PRICE_SUN", "must be between 1 and 99 (burning costs 100)")
+		}
+		if cfg.EnergyRentalSeconds < 900 {
+			reader.fail("GIGJAR_ENERGY_RENTAL_SECONDS", "must be at least 900")
+		}
+	}
 	return cfg, reader.err()
 }
 
@@ -143,6 +198,18 @@ func LoadWatcher(lookup LookupFunc) (Watcher, error) {
 		}
 	}
 	return cfg, reader.err()
+}
+
+func readSettlement(reader *reader) (usdt.Amount, usdt.Amount) {
+	threshold := reader.amount("GIGJAR_SETTLEMENT_THRESHOLD", usdt.MustParse("12"))
+	fee := reader.amount("GIGJAR_SETTLEMENT_FEE", usdt.MustParse("1"))
+	if fee < 0 {
+		reader.fail("GIGJAR_SETTLEMENT_FEE", "must not be negative")
+	}
+	if threshold-fee <= clevaMinimumDeposit {
+		reader.fail("GIGJAR_SETTLEMENT_THRESHOLD", "minus GIGJAR_SETTLEMENT_FEE must stay above Cleva's 10 USDT minimum deposit")
+	}
+	return threshold, fee
 }
 
 func readCommon(reader *reader) Common {

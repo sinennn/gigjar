@@ -130,15 +130,23 @@ func (w *Watcher) ReconcileOnce(ctx context.Context) (Report, error) {
 			w.logger.Warn("reading jar balance on chain failed", "address", jar.address, "error", err)
 			continue
 		}
-		var held, pending int64
+		var (
+			held, pending int64
+			sweeping      bool
+		)
 		err = w.pool.QueryRow(ctx, `
 			SELECT
-				(SELECT coalesce(sum(balance), 0) FROM ledger_accounts WHERE user_id = $1 AND kind IN ('jar_available', 'jar_reserved'))::bigint,
-				(SELECT coalesce(sum(amount), 0) FROM incoming_transfers WHERE user_id = $1 AND status = 'pending')::bigint`,
+				(SELECT coalesce(sum(balance), 0) FROM ledger_accounts WHERE user_id = $1 AND kind IN ('jar_available', 'jar_reserved'))::bigint
+				  + (SELECT coalesce(sum(fee), 0) FROM settlements WHERE user_id = $1 AND state = 'confirmed')::bigint,
+				(SELECT coalesce(sum(amount), 0) FROM incoming_transfers WHERE user_id = $1 AND status = 'pending')::bigint,
+				EXISTS (SELECT 1 FROM settlements WHERE user_id = $1 AND state IN ('signing', 'broadcast'))`,
 			jar.userID,
-		).Scan(&held, &pending)
+		).Scan(&held, &pending, &sweeping)
 		if err != nil {
 			return report, fmt.Errorf("read ledger holdings: %w", err)
+		}
+		if sweeping {
+			continue
 		}
 		report.JarsChecked++
 		mismatch := BalanceMismatch{UserID: jar.userID, Address: jar.address, ChainBalance: chainBalance, LedgerHeld: usdt.Amount(held), Pending: usdt.Amount(pending)}

@@ -1,6 +1,6 @@
 # GigJar
 
-Get paid in USDT for any gig, however small. Payments pool in a per-student jar and sweep to the student's Cleva wallet once the jar passes about $11.
+Get paid in USDT for any gig, however small. Payments pool in a per-student jar and sweep automatically to the student's Cleva wallet once the jar reaches $12, minus a flat $1 fee.
 
 Read [docs/architecture.md](docs/architecture.md) for the domain model, ledger, state machines and open questions.
 
@@ -11,7 +11,7 @@ Read [docs/architecture.md](docs/architecture.md) for the domain model, ledger, 
 | 1 | Foundation: config, logging, Postgres, migrations, health checks, API skeleton, Docker, web skeleton | done |
 | 2 | Financial core: users, auth, payment links, double-entry ledger | done |
 | 3 | Watcher: TRON observation, attribution, confirmations | done |
-| 4 | Sweeper: settlement state machine, WDK signer | next |
+| 4 | Sweeper: settlement state machine, WDK signer, energy rental | done, verified with live sweeps on Nile |
 | 5 | Frontend screens | scaffolded |
 | 6 | End-to-end integration | planned |
 
@@ -19,12 +19,12 @@ Read [docs/architecture.md](docs/architecture.md) for the domain model, ledger, 
 
 - Go 1.27+
 - Docker with Compose v2
-- Node 20+ and pnpm 9 (web app only)
+- Node 20+ and pnpm 9 (web app and the `services/signer` wallet service)
 
 ## Quick start
 
 ```bash
-make up                  # postgres, then migrations, then api on http://localhost:8090 and the chain watcher
+make up                  # postgres, migrations, then api (http://localhost:8090), watcher and sweeper
 curl localhost:8090/healthz
 curl localhost:8090/readyz
 
@@ -39,7 +39,14 @@ Local Go development without containerising the API:
 make db-up               # postgres on localhost:55432
 make run-api             # applies migrations, then runs the API
 make run-watcher         # in another terminal: the chain watcher (simulated network by default)
+make run-sweeper         # in another terminal: sweeps full jars to Cleva
 ```
+
+### Real networks (Nile testnet, later mainnet)
+
+Set `GIGJAR_CHAIN_NETWORK=tron-nile`, `GIGJAR_TRONGRID_API_KEY`, `GIGJAR_SIGNER_SEED` (a BIP-39 mnemonic) and `GIGJAR_SIGNER_TOKEN` (a random string of at least 32 characters), then run `docker compose --profile real-chain up --build -d`. That also starts `services/signer`, the only process that holds the seed. It has no published port.
+
+**The seed controls every jar and the treasury.** Use a throwaway seed for Nile. For mainnet, keep it in a secrets manager with an offline backup, and limit who can read it.
 
 On the simulated network, `POST /v1/simulator/transfers` fakes an incoming USDT payment. See [apps/web/README.md](apps/web/README.md#testing-payments-locally).
 
@@ -56,6 +63,8 @@ To watch the Nile testnet instead, set `GIGJAR_CHAIN_NETWORK=tron-nile` and `GIG
 | `make test` | Unit tests with the race detector |
 | `make test-integration` | Tests against the real Postgres in `gigjar_test` |
 | `make test-trongrid` | Live, read-only tests against the TRON Nile testnet. Needs `GIGJAR_TRONGRID_API_KEY` in the environment or `.env`. |
+| `make test-nile-sweep` | Live sweep on Nile with real test funds: client payment → watcher credit → energy rental → signed sweep → confirmation. Reports the TRX it cost. Needs the treasury and test client funded from the Nile faucet. |
+| `make signer-install` / `make signer-test` | Install and test the Node signer |
 | `make run-watcher` / `make reconcile` | Run the watcher, or run one reconciliation pass that exits non-zero on discrepancies |
 | `make check` | gofmt check, `go vet` (with and without the integration tag), unit tests |
 | `make contracts` | Regenerate web types from `packages/contracts/openapi.yaml` |
@@ -74,7 +83,15 @@ All services read `GIGJAR_*` environment variables. See [.env.example](.env.exam
 | `GIGJAR_HTTP_REQUEST_TIMEOUT` | `15s` | |
 | `GIGJAR_SHUTDOWN_TIMEOUT` | `20s` | |
 | `GIGJAR_CHAIN_NETWORK` | `simulated` | `tron-mainnet`, `tron-nile` or `simulated`. Production refuses `simulated`. |
-| `GIGJAR_SETTLEMENT_THRESHOLD` | `11` | USDT. Must be above Cleva's 10 USDT minimum. |
+| `GIGJAR_SETTLEMENT_THRESHOLD` | `12` | USDT. A jar is swept once its available balance reaches this. |
+| `GIGJAR_SETTLEMENT_FEE` | `1` | USDT kept from each sweep. Threshold minus fee must stay above Cleva's 10 USDT minimum. |
+| `GIGJAR_SIGNER_SEED` | none | Signer only. Real networks only. Never logged. |
+| `GIGJAR_SIGNER_TOKEN` | none | Shared secret between the sweeper and the signer, at least 32 characters. |
+| `GIGJAR_SIGNER_URL` | `http://signer:8081` | Sweeper only |
+| `GIGJAR_ENERGY_PROVIDER` | `tronsave` | `tronsave` rents energy per sweep; `none` always burns TRX |
+| `GIGJAR_MAX_ENERGY_PRICE_SUN` | `90` | The highest price per unit of energy the sweeper will rent at. Above that it burns TRX (100 sun). |
+| `GIGJAR_ENERGY_RENTAL_SECONDS` | `900` | Rental length; 900 is TronSave's minimum |
+| `GIGJAR_SIMULATED_SWEEP_DELAY` | `10s` | How long a simulated sweep stays unconfirmed |
 | `GIGJAR_PUBLIC_WEB_URL` | `http://localhost:3000` | Base for `pay_url` on payment links |
 | `GIGJAR_SESSION_TTL` | `720h` | |
 | `GIGJAR_SECURE_COOKIES` | on in production | Production refuses `false` |

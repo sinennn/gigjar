@@ -109,6 +109,7 @@ func NewRouter(cfg RouterConfig) (http.Handler, error) {
 			private.Post("/payment-links/{id}/close", a.closePaymentLink)
 			private.Get("/transactions", a.listTransactions)
 			private.Get("/incoming-transfers", a.listIncomingTransfers)
+			private.Get("/settlements", a.listSettlements)
 		})
 	})
 

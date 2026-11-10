@@ -22,9 +22,11 @@ import (
 	"gigjar/internal/identity"
 	"gigjar/internal/jars"
 	"gigjar/internal/paylinks"
+	"gigjar/internal/settlement"
 	"gigjar/internal/testdb"
 	"gigjar/internal/tron"
 	"gigjar/internal/usdt"
+	"gigjar/internal/wallet/simwallet"
 	"gigjar/internal/watcher"
 )
 
@@ -54,7 +56,7 @@ func startAPI(t *testing.T) (*pgxpool.Pool, *httptest.Server) {
 		Readiness:      func(context.Context) error { return nil },
 		DB:             pool,
 		Identity:       identityService,
-		Jars:           jars.NewService(pool, usdt.MustParse("11")),
+		Jars:           jars.NewService(pool, usdt.MustParse("12"), usdt.MustParse("1")),
 		PayLinks:       paylinks.NewService(pool),
 		Network:        tron.NetworkSimulated,
 		PublicWebURL:   "http://localhost:3000",
@@ -151,7 +153,7 @@ func TestStudentJourney(t *testing.T) {
 	if balances := jar["balances"].(map[string]any); balances["pending"] != "0.000000" {
 		t.Fatalf("fresh jar balances = %v", balances)
 	}
-	if jar["settlement_threshold"] != "11.000000" || jar["remaining_until_settlement"] != "11.000000" {
+	if jar["settlement_threshold"] != "12.000000" || jar["settlement_fee"] != "1.000000" || jar["remaining_until_settlement"] != "12.000000" {
 		t.Fatalf("fresh jar thresholds = %v", jar)
 	}
 
@@ -297,6 +299,47 @@ func TestStudentJourney(t *testing.T) {
 	if len(movements) != 2 || movements[0].(map[string]any)["kind"] != "deposit" || movements[0].(map[string]any)["incoming_transfer_id"] == nil || transactions["next_cursor"] == nil {
 		t.Fatalf("transactions = %v", transactions)
 	}
+
+	if empty := student.expect(http.StatusOK, http.MethodGet, "/v1/settlements", nil); len(empty["items"].([]any)) != 0 {
+		t.Fatalf("settlements before sweep = %v", empty)
+	}
+	sweeper, err := settlement.New(pool, simwallet.New(pool, 0), simulated.NewProvider(pool), slog.New(slog.NewTextHandler(io.Discard, nil)), settlement.DefaultConfig())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := sweeper.QueueOnce(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	settling := student.expect(http.StatusOK, http.MethodGet, "/v1/jar", nil)["balances"].(map[string]any)
+	if settling["available"] != "0.000000" || settling["settling"] != "12.000000" {
+		t.Fatalf("jar while settling = %v", settling)
+	}
+	queued := student.expect(http.StatusOK, http.MethodGet, "/v1/settlements", nil)["items"].([]any)[0].(map[string]any)
+	if queued["state"] != "queued" || queued["amount"] != "12.000000" || queued["fee"] != "1.000000" || queued["net_amount"] != "11.000000" ||
+		queued["destination_address"] != clevaAddress || queued["tx_id"] != nil {
+		t.Fatalf("queued settlement = %v", queued)
+	}
+	for range 2 {
+		if _, err := pool.Exec(context.Background(), `UPDATE settlements SET next_attempt_at = now()`); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := sweeper.AdvanceOnce(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+	}
+	confirmed := student.expect(http.StatusOK, http.MethodGet, "/v1/settlements", nil)["items"].([]any)[0].(map[string]any)
+	if confirmed["state"] != "confirmed" || confirmed["tx_id"] == nil || confirmed["confirmed_at"] == nil {
+		t.Fatalf("confirmed settlement = %v", confirmed)
+	}
+	settled := student.expect(http.StatusOK, http.MethodGet, "/v1/jar", nil)["balances"].(map[string]any)
+	if settled["available"] != "0.000000" || settled["settling"] != "0.000000" || settled["settled"] != "11.000000" {
+		t.Fatalf("jar after sweep = %v", settled)
+	}
+	history := student.expect(http.StatusOK, http.MethodGet, "/v1/transactions?limit=2", nil)["items"].([]any)
+	if history[0].(map[string]any)["kind"] != "settlement_completed" || history[0].(map[string]any)["settled_delta"] != "11.000000" || history[0].(map[string]any)["settling_delta"] != "-12.000000" {
+		t.Fatalf("sweep history = %v", history)
+	}
+	student.expect(http.StatusUnprocessableEntity, http.MethodGet, "/v1/settlements?cursor=garbage", nil)
 
 	if _, err := pool.Exec(context.Background(), `UPDATE jars SET address = NULL, provisioned_at = NULL WHERE user_id = $1`, userID); err != nil {
 		t.Fatal(err)

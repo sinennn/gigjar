@@ -4,3 +4,4 @@ node_modules
 docs
 bin
 .env
+**/node_modules
