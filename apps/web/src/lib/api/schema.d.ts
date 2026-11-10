@@ -203,7 +203,12 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** @description Phase 3. */
+        /**
+         * @description Every USDT transfer the watcher has seen arrive at the jar address, newest first.
+         *     `pending` means seen on chain but not yet solidified (irreversible); it is not spendable.
+         *     `confirmed` means solidified with a successful receipt, and the amount is credited to the jar.
+         *     `failed` means it will never be credited (see `failure_reason`).
+         */
         get: operations["listIncomingTransfers"];
         put?: never;
         post?: never;
@@ -240,6 +245,28 @@ export interface paths {
         get: operations["getPublicPaymentInstructions"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/simulator/transfers": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * @description Only mounted when the API runs with `GIGJAR_CHAIN_NETWORK=simulated` (never in production); otherwise 404.
+         *     Records a fake USDT transfer on the simulated chain so the watcher can pick it up. No real funds move.
+         *     Pay a link by `reference`, or send to any `to_address`. `confirmation_delay_seconds` (default 10, max 3600)
+         *     controls how long the transfer stays pending. `outcome: reverted` simulates a failed transaction.
+         */
+        post: operations["sendSimulatedTransfer"];
         delete?: never;
         options?: never;
         head?: never;
@@ -301,7 +328,7 @@ export interface components {
             display_name?: string;
         };
         Jar: {
-            /** @description Null until the jar's TRON address is provisioned by the wallet service (Phase 4). */
+            /** @description Null until the jar's TRON address is provisioned. On the simulated network it is assigned at sign-up; on real networks the wallet service assigns it (Phase 4). */
             address: components["schemas"]["TronAddress"] | null;
             network: components["schemas"]["Network"];
             balances: components["schemas"]["JarBalances"];
@@ -310,8 +337,8 @@ export interface components {
             cleva_destination_set: boolean;
         };
         JarBalances: {
-            /** @description Observed on chain, not yet solidified. Not spendable. Returned once the watcher ships (Phase 3). */
-            pending?: components["schemas"]["UsdtAmount"];
+            /** @description Observed on chain, not yet solidified. Not spendable and not counted toward the settlement threshold. */
+            pending: components["schemas"]["UsdtAmount"];
             /** @description Confirmed and waiting in the jar. */
             available: components["schemas"]["UsdtAmount"];
             /** @description Reserved by an in-flight sweep to Cleva. */
@@ -339,8 +366,8 @@ export interface components {
             title: string;
             description: string;
             amount: components["schemas"]["UsdtAmount"];
-            /** @description Returned once the watcher ships (Phase 3). */
-            amount_received?: components["schemas"]["UsdtAmount"];
+            /** @description Sum of confirmed transfers attributed to this link. A transfer is attributed when its amount exactly equals an open link's amount (oldest such link first). */
+            amount_received: components["schemas"]["UsdtAmount"];
             status: components["schemas"]["PaymentLinkStatus"];
             /** Format: uri */
             pay_url: string;
@@ -360,14 +387,18 @@ export interface components {
             network: components["schemas"]["Network"];
             tx_hash: string;
             from_address: components["schemas"]["TronAddress"];
+            /** @description While pending this is what the indexer reported; once confirmed it is the amount read from the solidified transaction logs. */
             amount: components["schemas"]["UsdtAmount"];
             status: components["schemas"]["IncomingTransferStatus"];
+            /** @description Set when failed: receipt_revert, receipt_out_of_energy (or another receipt_* result), not_solidified (never became final within 24h), no_matching_transfer. */
+            failure_reason: string | null;
             /** Format: uuid */
-            payment_link_id?: string | null;
+            payment_link_id: string | null;
+            block_number: number | null;
             /** Format: date-time */
             observed_at: string;
             /** Format: date-time */
-            confirmed_at?: string | null;
+            confirmed_at: string | null;
         };
         /** @enum {string} */
         LedgerMovementKind: "deposit" | "settlement_reserved" | "settlement_completed" | "settlement_released";
@@ -418,6 +449,8 @@ export interface components {
                 contract_address: components["schemas"]["TronAddress"] | null;
             };
             status: components["schemas"]["PaymentLinkStatus"];
+            /** @description True while the link is open and a not-yet-final transfer of exactly this amount has reached the jar since the link was created. Show "payment seen, waiting for confirmation". The link becomes `status: paid` once confirmed. */
+            pending_payment_observed: boolean;
         };
     };
     responses: {
@@ -750,13 +783,13 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description The link. Attributed transfers are added in Phase 3 (see PaymentLinkDetail). */
+            /** @description The link with the confirmed transfers attributed to it. */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["PaymentLink"];
+                    "application/json": components["schemas"]["PaymentLinkDetail"];
                 };
             };
             404: components["responses"]["Error"];
@@ -892,6 +925,51 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorBody"];
                 };
             };
+        };
+    };
+    sendSimulatedTransfer: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    reference?: string;
+                    to_address?: components["schemas"]["TronAddress"];
+                    from_address?: components["schemas"]["TronAddress"];
+                    amount: components["schemas"]["UsdtAmount"];
+                    /** @enum {string} */
+                    outcome?: "success" | "reverted";
+                    confirmation_delay_seconds?: number;
+                };
+            };
+        };
+        responses: {
+            /** @description Simulated transfer recorded. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        simulated: true;
+                        tx_hash: string;
+                        from_address: components["schemas"]["TronAddress"];
+                        to_address: components["schemas"]["TronAddress"];
+                        amount: components["schemas"]["UsdtAmount"];
+                        /** @enum {string} */
+                        outcome: "success" | "reverted";
+                        block_number: number;
+                        /** Format: date-time */
+                        solidifies_at: string;
+                    };
+                };
+            };
+            422: components["responses"]["Error"];
         };
     };
 }

@@ -1,9 +1,9 @@
 SHELL := /bin/bash
 DATABASE_URL ?= postgres://gigjar:gigjar@localhost:55432/gigjar?sslmode=disable
 TEST_DATABASE_URL ?= postgres://gigjar:gigjar@localhost:55432/gigjar_test?sslmode=disable
-GO_SERVICES := api migrate
+GO_SERVICES := api migrate watcher
 
-.PHONY: help up down logs db-up migrate migrate-down-one migrate-version migration run-api build test test-integration fmt fmt-check vet check web-install web-dev web-build contracts
+.PHONY: help up down logs db-up migrate migrate-down-one migrate-version migration run-api run-watcher reconcile build test test-integration test-trongrid fmt fmt-check vet check web-install web-dev web-build contracts
 
 help:
 	@grep -E '^[a-zA-Z_-]+:' Makefile | cut -d: -f1 | sort
@@ -38,6 +38,12 @@ migration:
 run-api: migrate
 	GIGJAR_DATABASE_URL="$(DATABASE_URL)" GIGJAR_LOG_FORMAT=text go run ./services/api
 
+run-watcher: migrate
+	GIGJAR_DATABASE_URL="$(DATABASE_URL)" GIGJAR_LOG_FORMAT=text go run ./services/watcher run
+
+reconcile: db-up
+	GIGJAR_DATABASE_URL="$(DATABASE_URL)" GIGJAR_LOG_FORMAT=text go run ./services/watcher reconcile
+
 build:
 	@mkdir -p bin
 	@for service in $(GO_SERVICES); do go build -o bin/$$service ./services/$$service || exit 1; done
@@ -48,6 +54,12 @@ test:
 test-integration: db-up
 	GIGJAR_TEST_DATABASE_URL="$(TEST_DATABASE_URL)" go test -race -count=1 -p 1 -tags integration ./...
 
+test-trongrid:
+	@key="$${GIGJAR_TRONGRID_API_KEY:-$$(grep -s '^GIGJAR_TRONGRID_API_KEY=' .env | cut -d= -f2-)}"; \
+	test -n "$$key" || (echo "set GIGJAR_TRONGRID_API_KEY or add it to .env" && exit 1); \
+	GIGJAR_TRONGRID_API_KEY="$$key" go test -count=1 -tags trongrid -run Live -v ./internal/chain/trongrid/ && \
+	GIGJAR_TRONGRID_API_KEY="$$key" GIGJAR_TEST_DATABASE_URL="$(TEST_DATABASE_URL)" go test -count=1 -p 1 -tags "integration trongrid" -run Live -v ./internal/watcher/
+
 fmt:
 	gofmt -w internal services migrations
 
@@ -57,6 +69,8 @@ fmt-check:
 vet:
 	go vet ./...
 	go vet -tags integration ./...
+	go vet -tags trongrid ./internal/chain/trongrid/
+	go vet -tags "integration trongrid" ./internal/watcher/
 
 check: fmt-check vet test
 

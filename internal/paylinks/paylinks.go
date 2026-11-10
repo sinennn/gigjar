@@ -50,16 +50,17 @@ func (e *ValidationError) Error() string {
 }
 
 type Link struct {
-	ID          uuid.UUID
-	UserID      uuid.UUID
-	Reference   string
-	Title       string
-	Description string
-	Amount      usdt.Amount
-	Status      Status
-	CreatedAt   time.Time
-	PaidAt      *time.Time
-	ClosedAt    *time.Time
+	ID             uuid.UUID
+	UserID         uuid.UUID
+	Reference      string
+	Title          string
+	Description    string
+	Amount         usdt.Amount
+	AmountReceived usdt.Amount
+	Status         Status
+	CreatedAt      time.Time
+	PaidAt         *time.Time
+	ClosedAt       *time.Time
 }
 
 type CreateInput struct {
@@ -85,6 +86,7 @@ type PublicInstructions struct {
 	RecipientDisplayName string
 	Network              tron.Network
 	PayToAddress         *tron.Address
+	PendingObserved      bool
 }
 
 type Service struct {
@@ -95,16 +97,20 @@ func NewService(pool *pgxpool.Pool) *Service {
 	return &Service{pool: pool}
 }
 
-const linkColumns = `id, user_id, reference, title, description, amount, status, created_at, paid_at, closed_at`
+const linkColumns = `id, user_id, reference, title, description, amount,
+	(SELECT coalesce(sum(t.amount), 0)::bigint FROM incoming_transfers t WHERE t.payment_link_id = payment_links.id AND t.status = 'confirmed'),
+	status, created_at, paid_at, closed_at`
 
 func scanLink(row pgx.Row) (Link, error) {
 	var (
-		link   Link
-		amount int64
+		link     Link
+		amount   int64
+		received int64
 	)
 	err := row.Scan(&link.ID, &link.UserID, &link.Reference, &link.Title, &link.Description,
-		&amount, &link.Status, &link.CreatedAt, &link.PaidAt, &link.ClosedAt)
+		&amount, &received, &link.Status, &link.CreatedAt, &link.PaidAt, &link.ClosedAt)
 	link.Amount = usdt.Amount(amount)
+	link.AmountReceived = usdt.Amount(received)
 	return link, err
 }
 
@@ -236,7 +242,12 @@ func (s *Service) PublicInstructions(ctx context.Context, reference string) (Pub
 	)
 	err := s.pool.QueryRow(ctx, `
 		SELECT pl.id, pl.user_id, pl.reference, pl.title, pl.description, pl.amount, pl.status,
-		       pl.created_at, pl.paid_at, pl.closed_at, u.display_name, j.network, j.address
+		       pl.created_at, pl.paid_at, pl.closed_at, u.display_name, j.network, j.address,
+		       pl.status = 'open' AND EXISTS (
+		           SELECT 1 FROM incoming_transfers t
+		           WHERE t.user_id = pl.user_id AND t.status = 'pending'
+		             AND t.amount = pl.amount AND t.observed_at >= pl.created_at
+		       )
 		FROM payment_links pl
 		JOIN users u ON u.id = pl.user_id
 		JOIN jars j ON j.user_id = pl.user_id
@@ -244,7 +255,7 @@ func (s *Service) PublicInstructions(ctx context.Context, reference string) (Pub
 		strings.ToLower(strings.TrimSpace(reference)),
 	).Scan(&link.ID, &link.UserID, &link.Reference, &link.Title, &link.Description, &amount, &link.Status,
 		&link.CreatedAt, &link.PaidAt, &link.ClosedAt,
-		&instructions.RecipientDisplayName, &instructions.Network, &instructions.PayToAddress)
+		&instructions.RecipientDisplayName, &instructions.Network, &instructions.PayToAddress, &instructions.PendingObserved)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return PublicInstructions{}, ErrNotFound
 	}

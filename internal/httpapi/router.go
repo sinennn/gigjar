@@ -92,6 +92,9 @@ func NewRouter(cfg RouterConfig) (http.Handler, error) {
 		v1.Post("/auth/login", a.login)
 		v1.Post("/auth/logout", a.logout)
 		v1.Get("/public/pay/{reference}", a.getPublicPayment)
+		if cfg.Network.IsSimulated() {
+			v1.Post("/simulator/transfers", a.sendSimulatedTransfer)
+		}
 
 		v1.Group(func(private chi.Router) {
 			private.Use(a.requireSession)
@@ -105,6 +108,7 @@ func NewRouter(cfg RouterConfig) (http.Handler, error) {
 			private.Get("/payment-links/{id}", a.getPaymentLink)
 			private.Post("/payment-links/{id}/close", a.closePaymentLink)
 			private.Get("/transactions", a.listTransactions)
+			private.Get("/incoming-transfers", a.listIncomingTransfers)
 		})
 	})
 

@@ -10,8 +10,8 @@ Read [docs/architecture.md](docs/architecture.md) for the domain model, ledger, 
 |---|---|---|
 | 1 | Foundation: config, logging, Postgres, migrations, health checks, API skeleton, Docker, web skeleton | done |
 | 2 | Financial core: users, auth, payment links, double-entry ledger | done |
-| 3 | Watcher: TRON observation, attribution, confirmations | next |
-| 4 | Sweeper: settlement state machine, WDK signer | planned |
+| 3 | Watcher: TRON observation, attribution, confirmations | done |
+| 4 | Sweeper: settlement state machine, WDK signer | next |
 | 5 | Frontend screens | scaffolded |
 | 6 | End-to-end integration | planned |
 
@@ -24,7 +24,7 @@ Read [docs/architecture.md](docs/architecture.md) for the domain model, ledger, 
 ## Quick start
 
 ```bash
-make up                  # postgres, then migrations, then api on http://localhost:8090
+make up                  # postgres, then migrations, then api on http://localhost:8090 and the chain watcher
 curl localhost:8090/healthz
 curl localhost:8090/readyz
 
@@ -36,8 +36,13 @@ Local Go development without containerising the API:
 
 ```bash
 make db-up               # postgres on localhost:55432
-make run-api             # applies migrations, then runs the API with .env.example defaults
+make run-api             # applies migrations, then runs the API
+make run-watcher         # in another terminal: the chain watcher (simulated network by default)
 ```
+
+On the simulated network, `POST /v1/simulator/transfers` fakes an incoming USDT payment. See [apps/web/README.md](apps/web/README.md#testing-payments-locally).
+
+To watch the Nile testnet instead, set `GIGJAR_CHAIN_NETWORK=tron-nile` and `GIGJAR_TRONGRID_API_KEY` for both the API and the watcher. Nile jars only get an address once the Phase 4 wallet service exists.
 
 ## Make targets
 
@@ -49,6 +54,8 @@ make run-api             # applies migrations, then runs the API with .env.examp
 | `make migration name=create_users` | New numbered up/down migration pair |
 | `make test` | Unit tests with the race detector |
 | `make test-integration` | Tests against the real Postgres in `gigjar_test` |
+| `make test-trongrid` | Live, read-only tests against the TRON Nile testnet. Needs `GIGJAR_TRONGRID_API_KEY` in the environment or `.env`. |
+| `make run-watcher` / `make reconcile` | Run the watcher, or run one reconciliation pass that exits non-zero on discrepancies |
 | `make check` | gofmt check, `go vet` (with and without the integration tag), unit tests |
 | `make contracts` | Regenerate web types from `packages/contracts/openapi.yaml` |
 
@@ -70,6 +77,15 @@ All services read `GIGJAR_*` environment variables. See [.env.example](.env.exam
 | `GIGJAR_PUBLIC_WEB_URL` | `http://localhost:3000` | Base for `pay_url` on payment links |
 | `GIGJAR_SESSION_TTL` | `720h` | |
 | `GIGJAR_SECURE_COOKIES` | on in production | Production refuses `false` |
+| `GIGJAR_TRONGRID_API_KEY` | none | Watcher only. Required on `tron-mainnet` and `tron-nile`. Never logged. |
+| `GIGJAR_TRONGRID_URL` | network default | `https://api.trongrid.io` or `https://nile.trongrid.io`. Must be https. |
+| `GIGJAR_WATCHER_ACTIVE_POLL_INTERVAL` | `15s` | Poll interval for jars with open links or pending transfers |
+| `GIGJAR_WATCHER_IDLE_POLL_INTERVAL` | `5m` | Poll interval for every other jar |
+| `GIGJAR_WATCHER_BATCH_SIZE` | `25` | Jars and transfers handled per tick |
+| `GIGJAR_WATCHER_TICK` | `3s` | |
+| `GIGJAR_WATCHER_CURSOR_OVERLAP` | `10m` | How far each poll looks back past the newest seen transfer |
+| `GIGJAR_WATCHER_DROP_AFTER` | `24h` | A transfer that never solidifies is marked failed after this |
+| `GIGJAR_WATCHER_RECONCILE_INTERVAL` | `10m` | |
 
 ## Health
 

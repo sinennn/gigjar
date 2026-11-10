@@ -154,7 +154,7 @@ func TestCrossSiteWritesAreRejected(t *testing.T) {
 func TestPrivateRoutesRequireSession(t *testing.T) {
 	router := newTestRouter(func(context.Context) error { return nil })
 
-	for _, path := range []string{"/v1/me", "/v1/jar", "/v1/payment-links", "/v1/transactions", "/v1/wallet/cleva"} {
+	for _, path := range []string{"/v1/me", "/v1/jar", "/v1/payment-links", "/v1/transactions", "/v1/incoming-transfers", "/v1/wallet/cleva"} {
 		recorder := serve(router, http.MethodGet, path, nil)
 		if recorder.Code != http.StatusUnauthorized {
 			t.Errorf("%s status = %d, want 401", path, recorder.Code)
@@ -179,5 +179,12 @@ func TestAttemptLimiterSlidesWindow(t *testing.T) {
 	clock = clock.Add(61 * time.Second)
 	if !limiter.allow("a@x.com") {
 		t.Fatal("attempts must be allowed after the window passes")
+	}
+}
+
+func TestSimulatorIsOnlyMountedOnTheSimulatedNetwork(t *testing.T) {
+	recorder := serve(newTestRouter(func(context.Context) error { return nil }), http.MethodPost, "/v1/simulator/transfers", nil)
+	if recorder.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want 404 on a non-simulated network", recorder.Code)
 	}
 }

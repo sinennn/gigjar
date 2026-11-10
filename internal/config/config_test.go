@@ -143,3 +143,57 @@ func TestProductionGuards(t *testing.T) {
 		}
 	}
 }
+
+func TestLoadWatcherSimulatedNeedsNoTronGrid(t *testing.T) {
+	cfg, err := LoadWatcher(lookupFrom(map[string]string{"GIGJAR_DATABASE_URL": "postgres://localhost/gigjar"}))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg.Network != tron.NetworkSimulated || cfg.TronGridURL != "" || cfg.TronGridAPIKey != "" {
+		t.Errorf("unexpected config: %+v", cfg)
+	}
+	if cfg.ActivePollInterval != 15*time.Second || cfg.BatchSize != 25 {
+		t.Errorf("unexpected defaults: %+v", cfg)
+	}
+}
+
+func TestLoadWatcherRealNetworkRequiresAPIKey(t *testing.T) {
+	_, err := LoadWatcher(lookupFrom(map[string]string{
+		"GIGJAR_DATABASE_URL":  "postgres://localhost/gigjar",
+		"GIGJAR_CHAIN_NETWORK": "tron-nile",
+	}))
+	if err == nil || !strings.Contains(err.Error(), "GIGJAR_TRONGRID_API_KEY") {
+		t.Fatalf("err = %v", err)
+	}
+
+	cfg, err := LoadWatcher(lookupFrom(map[string]string{
+		"GIGJAR_DATABASE_URL":     "postgres://localhost/gigjar",
+		"GIGJAR_CHAIN_NETWORK":    "tron-nile",
+		"GIGJAR_TRONGRID_API_KEY": "key",
+	}))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg.TronGridURL != "https://nile.trongrid.io" {
+		t.Errorf("trongrid url = %q", cfg.TronGridURL)
+	}
+}
+
+func TestLoadWatcherRejectsBadValues(t *testing.T) {
+	_, err := LoadWatcher(lookupFrom(map[string]string{
+		"GIGJAR_DATABASE_URL":                 "postgres://localhost/gigjar",
+		"GIGJAR_CHAIN_NETWORK":                "tron-mainnet",
+		"GIGJAR_TRONGRID_API_KEY":             "key",
+		"GIGJAR_TRONGRID_URL":                 "http://api.trongrid.io",
+		"GIGJAR_WATCHER_BATCH_SIZE":           "0",
+		"GIGJAR_WATCHER_ACTIVE_POLL_INTERVAL": "-1s",
+	}))
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	for _, key := range []string{"GIGJAR_TRONGRID_URL", "GIGJAR_WATCHER_BATCH_SIZE", "GIGJAR_WATCHER_ACTIVE_POLL_INTERVAL"} {
+		if !strings.Contains(err.Error(), key) {
+			t.Errorf("error does not mention %s: %v", key, err)
+		}
+	}
+}

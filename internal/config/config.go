@@ -4,9 +4,11 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
+	"gigjar/internal/chain/trongrid"
 	"gigjar/internal/tron"
 	"gigjar/internal/usdt"
 )
@@ -46,6 +48,19 @@ type API struct {
 
 type Migrate struct {
 	Common
+}
+
+type Watcher struct {
+	Common
+	TronGridURL        string
+	TronGridAPIKey     string
+	Tick               time.Duration
+	BatchSize          int
+	ActivePollInterval time.Duration
+	IdlePollInterval   time.Duration
+	CursorOverlap      time.Duration
+	DropAfter          time.Duration
+	ReconcileInterval  time.Duration
 }
 
 func (e Environment) IsProduction() bool {
@@ -92,6 +107,41 @@ func LoadAPI(lookup LookupFunc) (API, error) {
 func LoadMigrate(lookup LookupFunc) (Migrate, error) {
 	reader := newReader(lookup)
 	cfg := Migrate{Common: readCommon(reader)}
+	return cfg, reader.err()
+}
+
+func LoadWatcher(lookup LookupFunc) (Watcher, error) {
+	reader := newReader(lookup)
+	cfg := Watcher{
+		Common:             readCommon(reader),
+		Tick:               reader.duration("GIGJAR_WATCHER_TICK", 3*time.Second),
+		BatchSize:          reader.integer("GIGJAR_WATCHER_BATCH_SIZE", 25),
+		ActivePollInterval: reader.duration("GIGJAR_WATCHER_ACTIVE_POLL_INTERVAL", 15*time.Second),
+		IdlePollInterval:   reader.duration("GIGJAR_WATCHER_IDLE_POLL_INTERVAL", 5*time.Minute),
+		CursorOverlap:      reader.duration("GIGJAR_WATCHER_CURSOR_OVERLAP", 10*time.Minute),
+		DropAfter:          reader.duration("GIGJAR_WATCHER_DROP_AFTER", 24*time.Hour),
+		ReconcileInterval:  reader.duration("GIGJAR_WATCHER_RECONCILE_INTERVAL", 10*time.Minute),
+	}
+	for key, value := range map[string]time.Duration{
+		"GIGJAR_WATCHER_TICK":                 cfg.Tick,
+		"GIGJAR_WATCHER_ACTIVE_POLL_INTERVAL": cfg.ActivePollInterval,
+		"GIGJAR_WATCHER_IDLE_POLL_INTERVAL":   cfg.IdlePollInterval,
+		"GIGJAR_WATCHER_CURSOR_OVERLAP":       cfg.CursorOverlap,
+		"GIGJAR_WATCHER_DROP_AFTER":           cfg.DropAfter,
+		"GIGJAR_WATCHER_RECONCILE_INTERVAL":   cfg.ReconcileInterval,
+	} {
+		reader.requirePositive(key, value)
+	}
+	if cfg.BatchSize < 1 || cfg.BatchSize > 500 {
+		reader.fail("GIGJAR_WATCHER_BATCH_SIZE", "must be between 1 and 500")
+	}
+	if defaultTronGridURL, ok := trongrid.DefaultBaseURL(cfg.Network); ok {
+		cfg.TronGridURL = strings.TrimRight(reader.string("GIGJAR_TRONGRID_URL", defaultTronGridURL), "/")
+		cfg.TronGridAPIKey = reader.required("GIGJAR_TRONGRID_API_KEY")
+		if parsed, err := url.Parse(cfg.TronGridURL); err != nil || parsed.Scheme != "https" || parsed.Host == "" {
+			reader.fail("GIGJAR_TRONGRID_URL", "must be an absolute https URL")
+		}
+	}
 	return cfg, reader.err()
 }
 
@@ -188,6 +238,19 @@ func (r *reader) duration(key string, fallback time.Duration) time.Duration {
 	parsed, err := time.ParseDuration(value)
 	if err != nil {
 		r.fail(key, fmt.Sprintf("invalid duration %q", value))
+		return fallback
+	}
+	return parsed
+}
+
+func (r *reader) integer(key string, fallback int) int {
+	value, ok := r.raw(key)
+	if !ok {
+		return fallback
+	}
+	parsed, err := strconv.Atoi(value)
+	if err != nil {
+		r.fail(key, fmt.Sprintf("invalid integer %q", value))
 		return fallback
 	}
 	return parsed

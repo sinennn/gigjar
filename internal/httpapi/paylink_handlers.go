@@ -6,7 +6,9 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 
+	"gigjar/internal/jars"
 	"gigjar/internal/paylinks"
+	"gigjar/internal/transfers"
 	"gigjar/internal/usdt"
 )
 
@@ -47,6 +49,7 @@ func (a *api) createPaymentLink(w http.ResponseWriter, r *http.Request) {
 	if !created {
 		status = http.StatusOK
 	}
+	a.wakeJar(r, link.UserID)
 	writeJSON(w, a.logger, status, a.newPaymentLinkResponse(link))
 }
 
@@ -87,12 +90,22 @@ func (a *api) getPaymentLink(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	link, err := a.paylinks.Get(r.Context(), currentUser(r).ID, linkID)
+	user := currentUser(r)
+	link, err := a.paylinks.Get(r.Context(), user.ID, linkID)
 	if err != nil {
 		a.respondError(w, r, err)
 		return
 	}
-	writeJSON(w, a.logger, http.StatusOK, a.newPaymentLinkResponse(link))
+	linked, err := transfers.ForLink(r.Context(), a.db, user.ID, link.ID)
+	if err != nil {
+		a.respondError(w, r, err)
+		return
+	}
+	response := paymentLinkDetailResponse{paymentLinkResponse: a.newPaymentLinkResponse(link), Transfers: []incomingTransferResponse{}}
+	for _, transfer := range linked {
+		response.Transfers = append(response.Transfers, newIncomingTransferResponse(transfer))
+	}
+	writeJSON(w, a.logger, http.StatusOK, response)
 }
 
 func (a *api) closePaymentLink(w http.ResponseWriter, r *http.Request) {
@@ -119,7 +132,16 @@ func (a *api) getPublicPayment(w http.ResponseWriter, r *http.Request) {
 			"this jar is still being set up, so it cannot receive payments yet")
 		return
 	}
+	if instructions.Link.Status == paylinks.StatusOpen {
+		a.wakeJar(r, instructions.Link.UserID)
+	}
 	writeJSON(w, a.logger, http.StatusOK, newPublicPaymentResponse(instructions))
+}
+
+func (a *api) wakeJar(r *http.Request, userID uuid.UUID) {
+	if err := jars.Wake(r.Context(), a.db, userID); err != nil {
+		a.logger.Warn("could not wake jar watcher", "request_id", requestID(r), "user_id", userID, "error", err)
+	}
 }
 
 func (a *api) linkIDParam(w http.ResponseWriter, r *http.Request) (uuid.UUID, bool) {

@@ -9,7 +9,7 @@ pnpm install
 pnpm dev            # http://localhost:3000
 ```
 
-The browser only ever calls `/api/*`. `next.config.ts` rewrites that path to the Go API (`GIGJAR_API_ORIGIN`, default `http://localhost:8090`). Requests are then same-origin, so the session cookie planned for Phase 2 (`gigjar_session`, httpOnly) works without CORS.
+The browser only ever calls `/api/*`. `next.config.ts` rewrites that path to the Go API (`GIGJAR_API_ORIGIN`, default `http://localhost:8090`). Requests are then same-origin, so the session cookie (`gigjar_session`, httpOnly) works without CORS.
 
 ## What is here
 
@@ -25,7 +25,22 @@ The browser only ever calls `/api/*`. `next.config.ts` rewrites that path to the
 
 ## Contract status
 
-Every operation in `openapi.yaml` has `x-status`. Only `/healthz` and `/readyz` are `implemented` today. The rest are the agreed shapes, so you can build against them with mocks now.
+Every operation in `openapi.yaml` has `x-status`. Everything is `implemented` except `GET /v1/settlements` (Phase 4), so build against the real API. Run `pnpm contracts` after pulling to refresh the generated types.
+
+## Testing payments locally
+
+`make up` runs Postgres, the API and the watcher on the **simulated** network. Every jar gets a fake address at sign-up, and no real funds exist. To make a "client" pay a link:
+
+```bash
+curl -X POST localhost:8090/v1/simulator/transfers -H 'Content-Type: application/json' \
+  -d '{"reference":"<link reference>","amount":"4","confirmation_delay_seconds":20}'
+```
+
+- For the first ~20 seconds the jar shows it under `balances.pending`, `GET /v1/incoming-transfers` lists it as `pending`, and the public pay page returns `pending_payment_observed: true`.
+- Then the watcher confirms it. It moves to `balances.available`, the link becomes `paid` with `amount_received`, and a `deposit` appears in `GET /v1/transactions`.
+- Use `"to_address"` instead of `"reference"` for a payment that matches no link. Use `"outcome":"reverted"` to see a `failed` transfer.
+
+The simulator route exists only on the simulated network. Never build UI that depends on it.
 
 ## Design direction
 

@@ -2,6 +2,8 @@ package testdb
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"io"
 	"log/slog"
 	"os"
@@ -14,7 +16,9 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"gigjar/internal/database"
+	"gigjar/internal/jars"
 	"gigjar/internal/ledger"
+	"gigjar/internal/tron"
 )
 
 var migrateOnce sync.Once
@@ -57,7 +61,7 @@ func Open(t *testing.T) *pgxpool.Pool {
 func Reset(t *testing.T, pool *pgxpool.Pool) {
 	t.Helper()
 	_, err := pool.Exec(context.Background(), `
-		TRUNCATE postings, journal_entries, payment_links, cleva_destinations, jars, sessions RESTART IDENTITY CASCADE;
+		TRUNCATE postings, journal_entries, incoming_transfers, simulated_chain_transfers, jar_watch_state, payment_links, cleva_destinations, jars, sessions RESTART IDENTITY CASCADE;
 		ALTER TABLE ledger_accounts DISABLE TRIGGER ledger_accounts_no_delete;
 		DELETE FROM ledger_accounts WHERE user_id IS NOT NULL;
 		UPDATE ledger_accounts SET balance = 0;
@@ -86,4 +90,45 @@ func CreateUser(t *testing.T, pool *pgxpool.Pool) uuid.UUID {
 		t.Fatalf("create test user: %v", err)
 	}
 	return userID
+}
+
+func CreateUserWithJar(t *testing.T, pool *pgxpool.Pool) (uuid.UUID, tron.Address) {
+	t.Helper()
+	userID := CreateUser(t, pool)
+	ctx := context.Background()
+	err := database.WithTx(ctx, pool, func(tx pgx.Tx) error {
+		return jars.Create(ctx, tx, userID, tron.NetworkSimulated)
+	})
+	if err != nil {
+		t.Fatalf("create test jar: %v", err)
+	}
+	jar, err := jars.Get(ctx, pool, userID)
+	if err != nil || jar.Address == nil {
+		t.Fatalf("load test jar: %v", err)
+	}
+	return userID, *jar.Address
+}
+
+func RandomTxHash(t *testing.T) string {
+	t.Helper()
+	random := make([]byte, 32)
+	if _, err := rand.Read(random); err != nil {
+		t.Fatal(err)
+	}
+	return hex.EncodeToString(random)
+}
+
+func IncomingTransfer(t *testing.T, pool *pgxpool.Pool, userID uuid.UUID) uuid.UUID {
+	t.Helper()
+	var id uuid.UUID
+	err := pool.QueryRow(context.Background(), `
+		INSERT INTO incoming_transfers (network, tx_hash, user_id, to_address, from_address, amount)
+		VALUES ('simulated', $1, $2, $3, $3, 1)
+		RETURNING id`,
+		RandomTxHash(t), userID, tron.SimulatedJarAddress(0),
+	).Scan(&id)
+	if err != nil {
+		t.Fatalf("create test incoming transfer: %v", err)
+	}
+	return id
 }

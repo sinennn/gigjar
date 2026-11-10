@@ -35,7 +35,7 @@ func balancesOf(t *testing.T, pool *pgxpool.Pool, userID uuid.UUID) ledger.Balan
 
 func deposit(t *testing.T, pool *pgxpool.Pool, userID uuid.UUID, amount string) uuid.UUID {
 	t.Helper()
-	transferID := uuid.New()
+	transferID := testdb.IncomingTransfer(t, pool, userID)
 	err := inTx(t, pool, func(tx pgx.Tx) error {
 		_, err := ledger.RecordDeposit(context.Background(), tx, userID, transferID, usdt.MustParse(amount))
 		return err
@@ -123,7 +123,7 @@ func TestDepositIsIdempotent(t *testing.T) {
 	pool := testdb.Open(t)
 	ctx := context.Background()
 	student := testdb.CreateUser(t, pool)
-	transferID := uuid.New()
+	transferID := testdb.IncomingTransfer(t, pool, student)
 
 	for attempt := 0; attempt < 3; attempt++ {
 		var recorded ledger.Recorded
@@ -301,12 +301,13 @@ func TestUnbalancedEntriesAreRejected(t *testing.T) {
 	pool := testdb.Open(t)
 	ctx := context.Background()
 	student := testdb.CreateUser(t, pool)
+	transferID := testdb.IncomingTransfer(t, pool, student)
 
 	err := inTx(t, pool, func(tx pgx.Tx) error {
 		var entryID uuid.UUID
 		err := tx.QueryRow(ctx, `
 			INSERT INTO journal_entries (kind, idempotency_key, user_id, incoming_transfer_id)
-			VALUES ('deposit', 'forged', $1, gen_random_uuid()) RETURNING id`, student).Scan(&entryID)
+			VALUES ('deposit', 'forged', $1, $2) RETURNING id`, student, transferID).Scan(&entryID)
 		if err != nil {
 			return err
 		}
@@ -321,5 +322,20 @@ func TestUnbalancedEntriesAreRejected(t *testing.T) {
 	}
 	if got := balancesOf(t, pool, student); got.Available != 0 {
 		t.Fatalf("forged credit persisted: %+v", got)
+	}
+}
+
+func TestDepositsMustReferenceARealIncomingTransfer(t *testing.T) {
+	pool := testdb.Open(t)
+	student := testdb.CreateUser(t, pool)
+	err := inTx(t, pool, func(tx pgx.Tx) error {
+		_, err := ledger.RecordDeposit(context.Background(), tx, student, uuid.New(), usdt.MustParse("4"))
+		return err
+	})
+	if err == nil {
+		t.Fatal("a deposit without an incoming transfer must be rejected")
+	}
+	if got := balancesOf(t, pool, student); got.Available != 0 {
+		t.Fatalf("balances = %+v", got)
 	}
 }
