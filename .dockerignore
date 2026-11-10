@@ -1,0 +1,6 @@
+.git
+apps
+node_modules
+docs
+bin
+.env

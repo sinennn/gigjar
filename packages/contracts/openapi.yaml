@@ -1,0 +1,568 @@
+openapi: 3.1.0
+info:
+  title: GigJar API
+  version: 0.1.0
+  description: |
+    Contract between the GigJar Go API and the web app.
+    Every operation carries `x-status`: `implemented` is live on the API, `planned` is the agreed shape for an upcoming phase.
+    Money is always a decimal string with exactly six fractional digits (USDT base units are 1e-6). Clients must never parse money into floating point.
+servers:
+  - url: http://localhost:8090
+tags:
+  - name: health
+  - name: auth
+  - name: jar
+  - name: payment-links
+  - name: history
+  - name: wallet
+  - name: public
+
+paths:
+  /healthz:
+    get:
+      tags: [health]
+      operationId: getLiveness
+      x-status: implemented
+      responses:
+        "200":
+          description: Process is alive.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/HealthStatus" }
+
+  /readyz:
+    get:
+      tags: [health]
+      operationId: getReadiness
+      x-status: implemented
+      responses:
+        "200":
+          description: Database reachable and schema at the expected version.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/HealthStatus" }
+        "503":
+          $ref: "#/components/responses/Error"
+
+  /v1/auth/register:
+    post:
+      tags: [auth]
+      operationId: register
+      x-status: planned
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/RegisterRequest" }
+      responses:
+        "201":
+          description: Account created and session cookie set.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/User" }
+        "409": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Error" }
+
+  /v1/auth/login:
+    post:
+      tags: [auth]
+      operationId: login
+      x-status: planned
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/LoginRequest" }
+      responses:
+        "200":
+          description: Session cookie set.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/User" }
+        "401": { $ref: "#/components/responses/Error" }
+
+  /v1/auth/logout:
+    post:
+      tags: [auth]
+      operationId: logout
+      x-status: planned
+      responses:
+        "204": { description: Session revoked. }
+
+  /v1/me:
+    get:
+      tags: [auth]
+      operationId: getMe
+      x-status: planned
+      responses:
+        "200":
+          description: Current user.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/User" }
+        "401": { $ref: "#/components/responses/Error" }
+    patch:
+      tags: [auth]
+      operationId: updateMe
+      x-status: planned
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/UpdateProfileRequest" }
+      responses:
+        "200":
+          description: Updated profile.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/User" }
+
+  /v1/jar:
+    get:
+      tags: [jar]
+      operationId: getJar
+      x-status: planned
+      responses:
+        "200":
+          description: Jar address and balances, computed server side from the ledger.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Jar" }
+
+  /v1/wallet/cleva:
+    get:
+      tags: [wallet]
+      operationId: getClevaDestination
+      x-status: planned
+      responses:
+        "200":
+          description: Current Cleva TRC20 deposit address.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ClevaDestination" }
+        "404": { $ref: "#/components/responses/Error" }
+    put:
+      tags: [wallet]
+      operationId: setClevaDestination
+      x-status: planned
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [address]
+              properties:
+                address: { $ref: "#/components/schemas/TronAddress" }
+      responses:
+        "200":
+          description: Destination saved. Settlements already in flight keep their original destination.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ClevaDestination" }
+        "422": { $ref: "#/components/responses/Error" }
+
+  /v1/payment-links:
+    get:
+      tags: [payment-links]
+      operationId: listPaymentLinks
+      x-status: planned
+      parameters:
+        - $ref: "#/components/parameters/Cursor"
+        - $ref: "#/components/parameters/Limit"
+        - name: status
+          in: query
+          schema: { $ref: "#/components/schemas/PaymentLinkStatus" }
+      responses:
+        "200":
+          description: Page of payment links, newest first.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: "#/components/schemas/PaymentLink" }
+                  next_cursor: { type: [string, "null"] }
+    post:
+      tags: [payment-links]
+      operationId: createPaymentLink
+      x-status: planned
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CreatePaymentLinkRequest" }
+      responses:
+        "201":
+          description: Link created.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PaymentLink" }
+        "422": { $ref: "#/components/responses/Error" }
+
+  /v1/payment-links/{id}:
+    get:
+      tags: [payment-links]
+      operationId: getPaymentLink
+      x-status: planned
+      parameters:
+        - $ref: "#/components/parameters/ResourceId"
+      responses:
+        "200":
+          description: Link with the transfers attributed to it.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PaymentLinkDetail" }
+        "404": { $ref: "#/components/responses/Error" }
+
+  /v1/payment-links/{id}/close:
+    post:
+      tags: [payment-links]
+      operationId: closePaymentLink
+      x-status: planned
+      parameters:
+        - $ref: "#/components/parameters/ResourceId"
+      responses:
+        "200":
+          description: Link closed. Funds already received stay in the jar, and later transfers to the jar address are still credited.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PaymentLink" }
+
+  /v1/transactions:
+    get:
+      tags: [history]
+      operationId: listTransactions
+      x-status: planned
+      parameters:
+        - $ref: "#/components/parameters/Cursor"
+        - $ref: "#/components/parameters/Limit"
+      responses:
+        "200":
+          description: Ledger movements affecting the user, newest first.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: "#/components/schemas/LedgerMovement" }
+                  next_cursor: { type: [string, "null"] }
+
+  /v1/incoming-transfers:
+    get:
+      tags: [history]
+      operationId: listIncomingTransfers
+      x-status: planned
+      parameters:
+        - $ref: "#/components/parameters/Cursor"
+        - $ref: "#/components/parameters/Limit"
+      responses:
+        "200":
+          description: On-chain payments observed for the jar, including pending ones.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: "#/components/schemas/IncomingTransfer" }
+                  next_cursor: { type: [string, "null"] }
+
+  /v1/settlements:
+    get:
+      tags: [history]
+      operationId: listSettlements
+      x-status: planned
+      parameters:
+        - $ref: "#/components/parameters/Cursor"
+        - $ref: "#/components/parameters/Limit"
+      responses:
+        "200":
+          description: Sweeps to Cleva, newest first.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: "#/components/schemas/Settlement" }
+                  next_cursor: { type: [string, "null"] }
+
+  /v1/public/pay/{reference}:
+    get:
+      tags: [public]
+      operationId: getPublicPaymentInstructions
+      x-status: planned
+      security: []
+      parameters:
+        - name: reference
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: What the client sees on the payment page. No private user data.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PublicPaymentInstructions" }
+        "404": { $ref: "#/components/responses/Error" }
+
+components:
+  securitySchemes:
+    session:
+      type: apiKey
+      in: cookie
+      name: gigjar_session
+
+  parameters:
+    Cursor:
+      name: cursor
+      in: query
+      schema: { type: string }
+    Limit:
+      name: limit
+      in: query
+      schema: { type: integer, minimum: 1, maximum: 100, default: 25 }
+    ResourceId:
+      name: id
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: false
+      schema: { type: string, maxLength: 128 }
+
+  responses:
+    Error:
+      description: Error envelope.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/ErrorBody" }
+
+  schemas:
+    HealthStatus:
+      type: object
+      required: [status]
+      properties:
+        status: { type: string, enum: [ok, ready] }
+
+    ErrorBody:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code: { type: string }
+            message: { type: string }
+            request_id: { type: string }
+            fields:
+              type: object
+              additionalProperties: { type: string }
+
+    UsdtAmount:
+      type: string
+      pattern: "^[0-9]+\\.[0-9]{6}$"
+      examples: ["4.000000"]
+
+    TronAddress:
+      type: string
+      pattern: "^T[1-9A-HJ-NP-Za-km-z]{33}$"
+
+    Network:
+      type: string
+      enum: [tron-mainnet, tron-nile, simulated]
+      description: "`simulated` means no real funds moved. The UI must label it clearly."
+
+    User:
+      type: object
+      required: [id, email, display_name, created_at]
+      properties:
+        id: { type: string, format: uuid }
+        email: { type: string, format: email }
+        display_name: { type: string }
+        created_at: { type: string, format: date-time }
+
+    RegisterRequest:
+      type: object
+      required: [email, password, display_name]
+      properties:
+        email: { type: string, format: email }
+        password: { type: string, minLength: 10, maxLength: 128 }
+        display_name: { type: string, minLength: 1, maxLength: 80 }
+
+    LoginRequest:
+      type: object
+      required: [email, password]
+      properties:
+        email: { type: string, format: email }
+        password: { type: string }
+
+    UpdateProfileRequest:
+      type: object
+      properties:
+        display_name: { type: string, minLength: 1, maxLength: 80 }
+
+    Jar:
+      type: object
+      required: [address, network, balances, settlement_threshold, remaining_until_settlement]
+      properties:
+        address: { $ref: "#/components/schemas/TronAddress" }
+        network: { $ref: "#/components/schemas/Network" }
+        balances: { $ref: "#/components/schemas/JarBalances" }
+        settlement_threshold: { $ref: "#/components/schemas/UsdtAmount" }
+        remaining_until_settlement: { $ref: "#/components/schemas/UsdtAmount" }
+        cleva_destination_set: { type: boolean }
+
+    JarBalances:
+      type: object
+      required: [pending, available, settling, settled]
+      properties:
+        pending:
+          allOf: [{ $ref: "#/components/schemas/UsdtAmount" }]
+          description: Observed on chain, not yet solidified. Not spendable.
+        available:
+          allOf: [{ $ref: "#/components/schemas/UsdtAmount" }]
+          description: Confirmed and waiting in the jar.
+        settling:
+          allOf: [{ $ref: "#/components/schemas/UsdtAmount" }]
+          description: Reserved by an in-flight sweep to Cleva.
+        settled:
+          allOf: [{ $ref: "#/components/schemas/UsdtAmount" }]
+          description: Lifetime total confirmed on chain to Cleva.
+
+    ClevaDestination:
+      type: object
+      required: [address, network, updated_at]
+      properties:
+        address: { $ref: "#/components/schemas/TronAddress" }
+        network: { $ref: "#/components/schemas/Network" }
+        updated_at: { type: string, format: date-time }
+
+    PaymentLinkStatus:
+      type: string
+      enum: [open, paid, closed]
+
+    CreatePaymentLinkRequest:
+      type: object
+      required: [title, amount]
+      properties:
+        title: { type: string, minLength: 1, maxLength: 120 }
+        description: { type: string, maxLength: 1000 }
+        amount: { $ref: "#/components/schemas/UsdtAmount" }
+
+    PaymentLink:
+      type: object
+      required: [id, reference, title, amount, status, pay_url, created_at]
+      properties:
+        id: { type: string, format: uuid }
+        reference: { type: string }
+        title: { type: string }
+        description: { type: string }
+        amount: { $ref: "#/components/schemas/UsdtAmount" }
+        amount_received: { $ref: "#/components/schemas/UsdtAmount" }
+        status: { $ref: "#/components/schemas/PaymentLinkStatus" }
+        pay_url: { type: string, format: uri }
+        created_at: { type: string, format: date-time }
+        paid_at: { type: [string, "null"], format: date-time }
+
+    PaymentLinkDetail:
+      allOf:
+        - $ref: "#/components/schemas/PaymentLink"
+        - type: object
+          required: [transfers]
+          properties:
+            transfers:
+              type: array
+              items: { $ref: "#/components/schemas/IncomingTransfer" }
+
+    IncomingTransferStatus:
+      type: string
+      enum: [pending, confirmed, failed]
+
+    IncomingTransfer:
+      type: object
+      required: [id, network, tx_hash, from_address, amount, status, observed_at]
+      properties:
+        id: { type: string, format: uuid }
+        network: { $ref: "#/components/schemas/Network" }
+        tx_hash: { type: string }
+        from_address: { $ref: "#/components/schemas/TronAddress" }
+        amount: { $ref: "#/components/schemas/UsdtAmount" }
+        status: { $ref: "#/components/schemas/IncomingTransferStatus" }
+        payment_link_id: { type: [string, "null"], format: uuid }
+        observed_at: { type: string, format: date-time }
+        confirmed_at: { type: [string, "null"], format: date-time }
+
+    LedgerMovementKind:
+      type: string
+      enum: [deposit, settlement_reserved, settlement_completed, settlement_released]
+
+    LedgerMovement:
+      type: object
+      required: [id, kind, available_delta, settling_delta, settled_delta, created_at]
+      properties:
+        id: { type: string, format: uuid }
+        kind: { $ref: "#/components/schemas/LedgerMovementKind" }
+        available_delta: { type: string, pattern: "^-?[0-9]+\\.[0-9]{6}$" }
+        settling_delta: { type: string, pattern: "^-?[0-9]+\\.[0-9]{6}$" }
+        settled_delta: { type: string, pattern: "^-?[0-9]+\\.[0-9]{6}$" }
+        incoming_transfer_id: { type: [string, "null"], format: uuid }
+        settlement_id: { type: [string, "null"], format: uuid }
+        created_at: { type: string, format: date-time }
+
+    SettlementState:
+      type: string
+      enum: [queued, signing, broadcast, confirmed, failed]
+
+    Settlement:
+      type: object
+      required: [id, network, amount, destination_address, state, created_at]
+      properties:
+        id: { type: string, format: uuid }
+        network: { $ref: "#/components/schemas/Network" }
+        amount: { $ref: "#/components/schemas/UsdtAmount" }
+        destination_address: { $ref: "#/components/schemas/TronAddress" }
+        state: { $ref: "#/components/schemas/SettlementState" }
+        tx_id: { type: [string, "null"] }
+        failure_reason: { type: [string, "null"] }
+        created_at: { type: string, format: date-time }
+        confirmed_at: { type: [string, "null"], format: date-time }
+
+    PublicPaymentInstructions:
+      type: object
+      required: [reference, title, amount, recipient_display_name, pay_to_address, network, token, status]
+      properties:
+        reference: { type: string }
+        title: { type: string }
+        description: { type: string }
+        amount: { $ref: "#/components/schemas/UsdtAmount" }
+        recipient_display_name: { type: string }
+        pay_to_address: { $ref: "#/components/schemas/TronAddress" }
+        network: { $ref: "#/components/schemas/Network" }
+        token:
+          type: object
+          required: [symbol, standard, contract_address]
+          properties:
+            symbol: { type: string, const: USDT }
+            standard: { type: string, const: TRC20 }
+            contract_address: { $ref: "#/components/schemas/TronAddress" }
+        status: { $ref: "#/components/schemas/PaymentLinkStatus" }
+
+security:
+  - session: []
