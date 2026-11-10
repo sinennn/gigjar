@@ -497,7 +497,7 @@ func TestParallelSweepersNeverDoubleSweep(t *testing.T) {
 				if _, err := sweeper.QueueOnce(context.Background()); err != nil {
 					t.Error(err)
 				}
-				if _, err := pool.Exec(context.Background(), `UPDATE settlements SET next_attempt_at = now() WHERE state IN ('queued', 'signing', 'broadcast')`); err != nil {
+				if _, err := pool.Exec(context.Background(), `UPDATE settlements SET next_attempt_at = now() WHERE id IN (SELECT id FROM settlements WHERE state IN ('queued', 'signing', 'broadcast') ORDER BY id FOR UPDATE)`); err != nil {
 					t.Error(err)
 				}
 				if _, err := sweeper.AdvanceOnce(context.Background()); err != nil {

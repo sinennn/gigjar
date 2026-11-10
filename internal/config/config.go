@@ -142,6 +142,12 @@ func LoadSweeper(lookup LookupFunc) (Sweeper, error) {
 		cfg.TronGridURL = strings.TrimRight(reader.string("GIGJAR_TRONGRID_URL", defaultTronGridURL), "/")
 		cfg.TronGridAPIKey = reader.required("GIGJAR_TRONGRID_API_KEY")
 		cfg.SignerURL = strings.TrimRight(reader.string("GIGJAR_SIGNER_URL", "http://signer:8081"), "/")
+		if !strings.Contains(cfg.SignerURL, "://") {
+			cfg.SignerURL = "http://" + cfg.SignerURL
+		}
+		if parsed, err := url.Parse(cfg.SignerURL); err != nil || parsed.Host == "" {
+			reader.fail("GIGJAR_SIGNER_URL", "must be a URL or host:port")
+		}
 		cfg.SignerToken = reader.required("GIGJAR_SIGNER_TOKEN")
 		if len(cfg.SignerToken) < 32 {
 			reader.fail("GIGJAR_SIGNER_TOKEN", "must be at least 32 characters")
