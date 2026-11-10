@@ -1,7 +1,5 @@
 import type { NextConfig } from "next";
 
-const apiOrigin = process.env.GIGJAR_API_ORIGIN ?? "http://localhost:8090";
-
 const nextConfig: NextConfig = {
   turbopack: {
     rules: {
@@ -13,9 +11,6 @@ const nextConfig: NextConfig = {
   },
   async redirects() {
     return [{ source: "/", destination: "/dashboard", permanent: false }];
-  },
-  async rewrites() {
-    return [{ source: "/api/:path*", destination: `${apiOrigin}/:path*` }];
   },
 };
 
