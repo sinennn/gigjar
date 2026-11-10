@@ -56,7 +56,7 @@ To watch the Nile testnet instead, set `GIGJAR_CHAIN_NETWORK=tron-nile` and `GIG
 
 `render.yaml` deploys a Nile staging environment to Render's free tier in Frankfurt:
 
-- **`gigjar-db`:** free Postgres. It expires and has no backups, so it is for staging only.
+- **Database:** a free Neon Postgres in Frankfurt, because Render allows one free Postgres per workspace. Its connection string is entered as `GIGJAR_DATABASE_URL`. Use Neon's direct, not pooled, endpoint: migrations need a session-level advisory lock.
 - **`gigjar-api`:** one free web service built from `infra/docker/render.Dockerfile`. It runs `services/gigjar`, which applies migrations at startup and then runs the API, watcher and sweeper in one process. The WDK signer runs beside it, bound to `127.0.0.1`. Render's free tier has no background workers or private services, which is why they share a service.
 - **`gigjar-web`:** the Next.js app on a free web service. Its `/api` proxy points at `gigjar-api`.
 
