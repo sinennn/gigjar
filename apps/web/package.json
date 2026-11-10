@@ -9,9 +9,9 @@
     "lint": "eslint",
     "contracts": "openapi-typescript ../../packages/contracts/openapi.yaml -o src/lib/api/schema.d.ts",
     "typecheck": "tsc --noEmit",
-    "cf:build": "GIGJAR_API_ORIGIN=${GIGJAR_API_ORIGIN:-https://gigjar-api-cd65.onrender.com} opennextjs-cloudflare build",
-    "cf:preview": "GIGJAR_API_ORIGIN=${GIGJAR_API_ORIGIN:-https://gigjar-api-cd65.onrender.com} opennextjs-cloudflare build && opennextjs-cloudflare preview",
-    "cf:deploy": "GIGJAR_API_ORIGIN=${GIGJAR_API_ORIGIN:-https://gigjar-api-cd65.onrender.com} opennextjs-cloudflare build && opennextjs-cloudflare deploy"
+    "cf:build": "opennextjs-cloudflare build",
+    "cf:preview": "opennextjs-cloudflare build && opennextjs-cloudflare preview",
+    "cf:deploy": "opennextjs-cloudflare build && opennextjs-cloudflare deploy"
   },
   "dependencies": {
     "next": "16.4.6",

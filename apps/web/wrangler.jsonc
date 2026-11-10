@@ -8,6 +8,9 @@
 		"directory": ".open-next/assets",
 		"binding": "ASSETS"
 	},
+	"vars": {
+		"GIGJAR_API_ORIGIN": "https://gigjar-api-cd65.onrender.com"
+	},
 	"services": [
 		{
 			"binding": "WORKER_SELF_REFERENCE",
