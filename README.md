@@ -52,6 +52,16 @@ On the simulated network, `POST /v1/simulator/transfers` fakes an incoming USDT 
 
 To watch the Nile testnet instead, set `GIGJAR_CHAIN_NETWORK=tron-nile` and `GIGJAR_TRONGRID_API_KEY` for both the API and the watcher. Nile jars only get an address once the Phase 4 wallet service exists.
 
+## Deploying to Render
+
+`render.yaml` deploys a Nile staging environment to Render's free tier in Frankfurt:
+
+- **Database:** a free Neon Postgres in Frankfurt, because Render allows one free Postgres per workspace. Its connection string is entered as `GIGJAR_DATABASE_URL`. Use Neon's direct, not pooled, endpoint: migrations need a session-level advisory lock.
+- **`gigjar-api`:** one free web service built from `infra/docker/render.Dockerfile`. It runs `services/gigjar`, which applies migrations at startup and then runs the API, watcher and sweeper in one process. The WDK signer runs beside it, bound to `127.0.0.1`. Render's free tier has no background workers or private services, which is why they share a service.
+- **`gigjar-web`:** the Next.js app on a free web service. Its `/api` proxy points at `gigjar-api`.
+
+Free web services sleep after about 15 minutes without traffic. While asleep, the watcher and sweeper pause. A visit wakes them (opening a pay page counts), and any interrupted sweep resumes safely. `GIGJAR_SIGNER_SEED` and `GIGJAR_TRONGRID_API_KEY` are entered when the Blueprint is approved and never committed. For mainnet, use paid instances with separate watcher, sweeper and signer services (`services/watcher`, `services/sweeper`, `services/signer`), a paid database, and a seed loaded from a secret file (`GIGJAR_SIGNER_SEED_FILE`).
+
 ## Make targets
 
 | Target | What it does |

@@ -1,7 +1,7 @@
 SHELL := /bin/bash
 DATABASE_URL ?= postgres://gigjar:gigjar@localhost:55432/gigjar?sslmode=disable
 TEST_DATABASE_URL ?= postgres://gigjar:gigjar@localhost:55432/gigjar_test?sslmode=disable
-GO_SERVICES := api migrate watcher sweeper
+GO_SERVICES := api migrate watcher sweeper gigjar
 
 .PHONY: help up down logs db-up migrate migrate-down-one migrate-version migration run-api run-watcher run-sweeper reconcile signer-install signer-test build test test-integration test-trongrid test-nile-sweep fmt fmt-check vet check web-install web-dev web-build contracts
 
