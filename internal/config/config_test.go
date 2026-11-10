@@ -236,3 +236,16 @@ func TestLoadSweeperRealNetworkNeedsSignerAndKey(t *testing.T) {
 		t.Errorf("unexpected config: %+v", cfg)
 	}
 }
+
+func TestLoadSweeperAcceptsHostPortSignerAddress(t *testing.T) {
+	cfg, err := LoadSweeper(lookupFrom(map[string]string{
+		"GIGJAR_DATABASE_URL":     "postgres://localhost/gigjar",
+		"GIGJAR_CHAIN_NETWORK":    "tron-nile",
+		"GIGJAR_TRONGRID_API_KEY": "key",
+		"GIGJAR_SIGNER_TOKEN":     strings.Repeat("t", 40),
+		"GIGJAR_SIGNER_URL":       "gigjar-signer-abc1:8081",
+	}))
+	if err != nil || cfg.SignerURL != "http://gigjar-signer-abc1:8081" {
+		t.Fatalf("signer url = %q, %v", cfg.SignerURL, err)
+	}
+}

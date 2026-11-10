@@ -1,3 +1,4 @@
+import fs from 'node:fs'
 import http from 'node:http'
 import { createApp } from './app.js'
 import { createSigner } from './signer.js'
@@ -17,9 +18,27 @@ function required (name) {
   return value
 }
 
+function readSeed () {
+  const file = process.env.GIGJAR_SIGNER_SEED_FILE?.trim()
+  if (file) {
+    try {
+      const seed = fs.readFileSync(file, 'utf8').trim()
+      if (seed) {
+        return seed
+      }
+    } catch (error) {
+      log('ERROR', { msg: 'cannot read GIGJAR_SIGNER_SEED_FILE', code: error.code })
+      process.exit(1)
+    }
+    log('ERROR', { msg: 'GIGJAR_SIGNER_SEED_FILE is empty' })
+    process.exit(1)
+  }
+  return required('GIGJAR_SIGNER_SEED')
+}
+
 const network = required('GIGJAR_CHAIN_NETWORK')
 const signer = createSigner({
-  seed: required('GIGJAR_SIGNER_SEED'),
+  seed: readSeed(),
   network,
   fullHost: process.env.GIGJAR_TRONGRID_URL?.trim() || FULL_HOSTS[network],
   apiKey: process.env.GIGJAR_TRONGRID_API_KEY?.trim()
@@ -34,7 +53,7 @@ const handle = createApp({
   log: { info: (entry) => log('INFO', entry), error: (entry) => log('ERROR', entry) }
 })
 
-const port = Number(process.env.GIGJAR_SIGNER_PORT || 8081)
+const port = Number(process.env.GIGJAR_SIGNER_PORT || process.env.PORT || 8081)
 const server = http.createServer((request, response) => { handle(request, response) })
 server.listen(port, async () => {
   log('INFO', { msg: 'signer listening', port, network, treasury: await signer.treasuryAddress() })
