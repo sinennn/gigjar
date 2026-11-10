@@ -8,7 +8,10 @@
     "start": "next start",
     "lint": "eslint",
     "contracts": "openapi-typescript ../../packages/contracts/openapi.yaml -o src/lib/api/schema.d.ts",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "cf:build": "GIGJAR_API_ORIGIN=${GIGJAR_API_ORIGIN:-https://gigjar-api-cd65.onrender.com} opennextjs-cloudflare build",
+    "cf:preview": "GIGJAR_API_ORIGIN=${GIGJAR_API_ORIGIN:-https://gigjar-api-cd65.onrender.com} opennextjs-cloudflare build && opennextjs-cloudflare preview",
+    "cf:deploy": "GIGJAR_API_ORIGIN=${GIGJAR_API_ORIGIN:-https://gigjar-api-cd65.onrender.com} opennextjs-cloudflare build && opennextjs-cloudflare deploy"
   },
   "dependencies": {
     "next": "16.4.6",
@@ -16,6 +19,7 @@
     "react-dom": "19.3.0"
   },
   "devDependencies": {
+    "@opennextjs/cloudflare": "1.20.16",
     "@tailwindcss/turbopack": "4.3.3",
     "@types/node": "^20",
     "@types/react": "^19",
@@ -24,7 +28,8 @@
     "eslint-config-next": "16.4.6",
     "openapi-typescript": "7",
     "tailwindcss": "4.3.3",
-    "typescript": "^5"
+    "typescript": "^5",
+    "wrangler": "4.160.0"
   },
   "packageManager": "pnpm@9.15.9"
 }
