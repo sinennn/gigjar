@@ -60,6 +60,8 @@ To watch the Nile testnet instead, set `GIGJAR_CHAIN_NETWORK=tron-nile` and `GIG
 - **`gigjar-api`:** one free web service built from `infra/docker/render.Dockerfile`. It runs `services/gigjar`, which applies migrations at startup and then runs the API, watcher and sweeper in one process. The WDK signer runs beside it, bound to `127.0.0.1`. Render's free tier has no background workers or private services, which is why they share a service.
 - **The web UI is not on Render.** It runs on Cloudflare Workers as `gigjar-web` (`pnpm cf:deploy` in `apps/web`, Node ≥ 22.12) and is served at https://gigjar.pages.dev. That address is a classic Cloudflare Pages project, `infra/cloudflare/pages-proxy`, whose only function hands every request to `gigjar-web` through a service binding. Redeploy it with `wrangler pages deploy --project-name gigjar` from that folder; it rarely changes. It is hosted on Cloudflare, and its `/api/*` rewrite (`GIGJAR_API_ORIGIN`) forwards to `gigjar-api`, so browsers only ever talk to the site's own origin and the session cookie stays first-party. Set `GIGJAR_PUBLIC_WEB_URL` and `GIGJAR_CORS_ALLOWED_ORIGINS` on `gigjar-api` to the Cloudflare site's URL. They are managed on the service, not in `render.yaml`, so the URL can change without a commit.
 
+Google sign-in and Groq keys are set on the `gigjar-api` service (Environment), not in `render.yaml`, so adding them never blocks a Blueprint sync.
+
 Free web services sleep after about 15 minutes without traffic. While asleep, the watcher and sweeper pause. A visit wakes them (opening a pay page counts), and any interrupted sweep resumes safely. `GIGJAR_SIGNER_SEED` and `GIGJAR_TRONGRID_API_KEY` are entered when the Blueprint is approved and never committed. For mainnet, use paid instances with separate watcher, sweeper and signer services (`services/watcher`, `services/sweeper`, `services/signer`), a paid database, and a seed loaded from a secret file (`GIGJAR_SIGNER_SEED_FILE`).
 
 ## Make targets
@@ -95,6 +97,10 @@ All services read `GIGJAR_*` environment variables. See [.env.example](.env.exam
 | `GIGJAR_CHAIN_NETWORK` | `simulated` | `tron-mainnet`, `tron-nile` or `simulated`. Production refuses `simulated`. |
 | `GIGJAR_SETTLEMENT_THRESHOLD` | `12` | USDT. A jar is swept once its available balance reaches this. |
 | `GIGJAR_SETTLEMENT_FEE` | `1` | USDT kept from each sweep. Threshold minus fee must stay above Cleva's 10 USDT minimum. |
+| `GIGJAR_GOOGLE_CLIENT_ID` / `GIGJAR_GOOGLE_CLIENT_SECRET` | none | Turns on "Continue with Google". Both or neither. The Google OAuth client's authorized redirect URI is `<GIGJAR_PUBLIC_WEB_URL>/api/v1/auth/google/callback`. |
+| `GIGJAR_GOOGLE_REDIRECT_URL` | `<GIGJAR_PUBLIC_WEB_URL>/api/v1/auth/google/callback` | Override only if the site is served elsewhere |
+| `GIGJAR_GROQ_API_KEY` | none | Turns on the AI features (link writer, earnings insights, help assistant). Without it they answer `503 ai_unavailable`. |
+| `GIGJAR_GROQ_MODEL` | `openai/gpt-oss-20b` | Any Groq model that supports strict JSON-schema output |
 | `GIGJAR_SIGNER_SEED` | none | Signer only. Real networks only. Never logged. |
 | `GIGJAR_SIGNER_TOKEN` | none | Shared secret between the sweeper and the signer, at least 32 characters. |
 | `GIGJAR_SIGNER_URL` | `http://signer:8081` | Sweeper only |

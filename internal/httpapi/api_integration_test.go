@@ -38,7 +38,7 @@ type client struct {
 	http   *http.Client
 }
 
-func startAPI(t *testing.T) (*pgxpool.Pool, *httptest.Server) {
+func startAPI(t *testing.T, options ...func(*httpapi.RouterConfig)) (*pgxpool.Pool, *httptest.Server) {
 	t.Helper()
 	pool := testdb.Open(t)
 	identityService, err := identity.NewService(pool, identity.Config{
@@ -49,7 +49,7 @@ func startAPI(t *testing.T) (*pgxpool.Pool, *httptest.Server) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	router, err := httpapi.NewRouter(httpapi.RouterConfig{
+	routerConfig := httpapi.RouterConfig{
 		Logger:         slog.New(slog.NewTextHandler(io.Discard, nil)),
 		AllowedOrigins: []string{"http://localhost:3000"},
 		RequestTimeout: 10 * time.Second,
@@ -60,7 +60,11 @@ func startAPI(t *testing.T) (*pgxpool.Pool, *httptest.Server) {
 		PayLinks:       paylinks.NewService(pool),
 		Network:        tron.NetworkSimulated,
 		PublicWebURL:   "http://localhost:3000",
-	})
+	}
+	for _, option := range options {
+		option(&routerConfig)
+	}
+	router, err := httpapi.NewRouter(routerConfig)
 	if err != nil {
 		t.Fatal(err)
 	}

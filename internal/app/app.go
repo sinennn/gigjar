@@ -9,6 +9,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"gigjar/internal/ai"
 	"gigjar/internal/chain"
 	"gigjar/internal/chain/simulated"
 	"gigjar/internal/chain/trongrid"
@@ -16,6 +17,7 @@ import (
 	"gigjar/internal/database"
 	"gigjar/internal/energy"
 	"gigjar/internal/energy/tronsave"
+	"gigjar/internal/googleauth"
 	"gigjar/internal/httpapi"
 	"gigjar/internal/identity"
 	"gigjar/internal/jars"
@@ -41,6 +43,20 @@ func NewAPIHandler(cfg config.API, pool *pgxpool.Pool, logger *slog.Logger) (htt
 	if err != nil {
 		return nil, err
 	}
+	var google *googleauth.Client
+	if cfg.GoogleEnabled() {
+		google, err = googleauth.New(googleauth.Config{
+			ClientID:     cfg.GoogleClientID,
+			ClientSecret: cfg.GoogleClientSecret,
+			RedirectURL:  cfg.GoogleRedirectURL,
+		})
+		if err != nil {
+			return nil, err
+		}
+	}
+	assistant := ai.NewService(ai.NewGroq(ai.GroqConfig{APIKey: cfg.GroqAPIKey, Model: cfg.GroqModel}),
+		pool, cfg.Network, cfg.SettlementThreshold, cfg.SettlementFee)
+	logger.Info("optional features", "google_sign_in", google != nil, "ai", assistant.Enabled(), "ai_model", cfg.GroqModel)
 	return httpapi.NewRouter(httpapi.RouterConfig{
 		Logger:         logger,
 		AllowedOrigins: cfg.CORSAllowedOrigins,
@@ -53,6 +69,8 @@ func NewAPIHandler(cfg config.API, pool *pgxpool.Pool, logger *slog.Logger) (htt
 		Network:        cfg.Network,
 		PublicWebURL:   cfg.PublicWebURL,
 		SecureCookies:  cfg.SecureCookies,
+		Google:         google,
+		AI:             assistant,
 	})
 }
 

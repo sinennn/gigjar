@@ -252,3 +252,27 @@ Gas: a TRC20 transfer from the jar address needs TRX (energy and bandwidth). Bef
 - **Known gaps:**
   - The treasury's own transactions use its 600 free daily bandwidth. After that each costs about 0.27 TRX, which is not yet recorded in `settlement_expenses`. Staking TRX for bandwidth removes it.
   - Rolling back migrations 6 or 7 is refused once ledger deposits or settlements exist.
+
+## 12. Google sign-in and AI features
+
+- **Google sign-in** uses OpenID Connect with an authorization code, PKCE (S256), a `state` value and a `nonce` (`internal/googleauth`).
+  - The flow values live in a 10-minute, HMAC-signed, HttpOnly, SameSite=Lax cookie.
+  - The ID token's signature, issuer, audience, expiry and nonce are verified with `coreos/go-oidc`.
+  - Google's discovery document is fetched on first use, so an outage at Google never stops the API from starting.
+  - `/v1/auth/google/start` is a full-page navigation through the site's `/api` proxy, so the session cookie lands on the site's own origin.
+- **Accounts.** `user_identities` stores Google's stable subject.
+  - A verified email that matches an existing account links to it.
+  - Otherwise a new account, with its jar and ledger accounts, is created with no password; password login for it always fails.
+  - Unverified Google emails are refused.
+  - Migration 000008 refuses to roll back while password-less accounts exist.
+- **AI** runs on Groq (`openai/gpt-oss-20b`, strict JSON-schema output, low reasoning effort, reasoning not returned) in `internal/ai`. It never changes state:
+  - **Link writer** returns a draft the student submits themselves. Prices are parsed and capped like any link.
+  - **Insights and the assistant** receive a JSON summary computed by our code from that student's own rows only: balances, 30-day earnings, links, recent transfers and sweeps. The model only phrases it.
+  - Prompts state the rules: no actions, never ask for secrets, use only the given data, and treat user text as content rather than instructions.
+  - Outputs are length-capped.
+  - Insights are cached for 10 minutes per student while the data is unchanged.
+- **Limits:**
+  - 30 AI requests per student per hour, and 25 per minute across the API, to stay under Groq's developer tier of 30 requests a minute and 1,000 a day.
+  - Groq 429s and 5xx responses surface as `503 ai_busy` with `Retry-After`.
+  - With no key configured the endpoints answer `503 ai_unavailable`, and `/v1/auth/providers` tells the UI which features are on.
+

@@ -84,6 +84,64 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/auth/providers": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Which optional features are switched on. Show the "Continue with Google" button only when `google` is true, and the AI features only when `ai` is true. */
+        get: operations["getAuthProviders"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/auth/google/start": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * @description A full-page navigation, not a fetch: use `window.location.href = "/api/v1/auth/google/start?return_to=/dashboard"`.
+         *     Redirects to Google. After Google, the browser lands on `return_to` (a path on this site; defaults to /dashboard), signed in.
+         *     On failure it lands on `/login?error=<code>`, where code is one of google_cancelled, google_expired, google_failed,
+         *     google_email_unverified, google_unavailable.
+         *     A Google account whose verified email matches an existing account signs into that account. Otherwise a new account,
+         *     with its jar, is created. Google-only accounts have no password.
+         */
+        get: operations["startGoogleSignIn"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/auth/google/callback": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Google redirects here. Not called by the frontend directly. Sets the session cookie and redirects into the site. */
+        get: operations["finishGoogleSignIn"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/me": {
         parameters: {
             query?: never;
@@ -242,6 +300,64 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/ai/link-draft": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * @description Turns a short description of a gig into a suggested title, description and price, to pre-fill the "new payment link" form.
+         *     It creates nothing; the student reviews and submits the form as usual. `suggested_amount` is null when no sensible
+         *     price could be suggested.
+         */
+        post: operations["draftPaymentLink"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/ai/insights": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description A short plain-language summary of the student's earnings for the dashboard. The numbers come from the ledger; the AI only phrases them. Cached for 10 minutes while the data is unchanged. */
+        get: operations["getEarningsInsights"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/ai/assistant": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * @description Answers a question about the student's own account (pending payments, sweeps, fees) using only their own data.
+         *     It cannot take actions or move money.
+         */
+        post: operations["askAssistant"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/public/pay/{reference}": {
         parameters: {
             query?: never;
@@ -291,7 +407,9 @@ export interface components {
         /**
          * @description Stable `error.code` values: malformed_body, validation_failed (with `fields`), email_taken, invalid_credentials,
          *     too_many_attempts, unauthenticated, cross_origin_rejected, payment_link_not_found, idempotency_key_conflict,
-         *     cleva_destination_not_set, jar_not_found, jar_not_ready, not_ready, not_found, method_not_allowed, internal_error.
+         *     cleva_destination_not_set, jar_not_found, jar_not_ready, not_ready, not_found, method_not_allowed, internal_error,
+         *     google_sign_in_unavailable, ai_unavailable (no key configured), ai_rate_limited (429, per-student hourly limit),
+         *     ai_busy (503, retry after the Retry-After header), ai_failed (502, the model gave an unusable answer).
          */
         ErrorBody: {
             error: {
@@ -610,6 +728,68 @@ export interface operations {
             };
         };
     };
+    getAuthProviders: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Feature switches. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        google: boolean;
+                        ai: boolean;
+                    };
+                };
+            };
+        };
+    };
+    startGoogleSignIn: {
+        parameters: {
+            query?: {
+                return_to?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Redirect to Google. */
+            302: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            404: components["responses"]["Error"];
+        };
+    };
+    finishGoogleSignIn: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Redirect into the site. */
+            302: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     getMe: {
         parameters: {
             query?: never;
@@ -908,6 +1088,102 @@ export interface operations {
                     };
                 };
             };
+        };
+    };
+    draftPaymentLink: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** @example logo for my church's youth event */
+                    brief: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Draft. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        title: string;
+                        description: string;
+                        suggested_amount: components["schemas"]["UsdtAmount"] | null;
+                        pricing_note: string;
+                    };
+                };
+            };
+            422: components["responses"]["Error"];
+            429: components["responses"]["Error"];
+            503: components["responses"]["Error"];
+        };
+    };
+    getEarningsInsights: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Insights. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        headline: string;
+                        highlights: string[];
+                        tip: string;
+                        /** Format: date-time */
+                        generated_at: string;
+                    };
+                };
+            };
+            429: components["responses"]["Error"];
+            503: components["responses"]["Error"];
+        };
+    };
+    askAssistant: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    question: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Answer. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        answer: string;
+                        /** Format: date-time */
+                        generated_at: string;
+                    };
+                };
+            };
+            422: components["responses"]["Error"];
+            429: components["responses"]["Error"];
+            503: components["responses"]["Error"];
         };
     };
     getPublicPaymentInstructions: {

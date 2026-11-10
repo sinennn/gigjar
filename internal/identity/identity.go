@@ -110,20 +110,20 @@ func (s *Service) Register(ctx context.Context, input RegisterInput) (User, Sess
 func (s *Service) Login(ctx context.Context, email, password string) (User, Session, error) {
 	var (
 		user         User
-		passwordHash string
+		passwordHash *string
 	)
 	err := s.pool.QueryRow(ctx, `
 		SELECT id, email, display_name, created_at, password_hash FROM users WHERE email = $1`,
 		strings.TrimSpace(email),
 	).Scan(&user.ID, &user.Email, &user.DisplayName, &user.CreatedAt, &passwordHash)
-	if errors.Is(err, pgx.ErrNoRows) {
+	if errors.Is(err, pgx.ErrNoRows) || (err == nil && passwordHash == nil) {
 		_, _ = VerifyPassword(password, s.decoyPassword)
 		return User{}, Session{}, ErrInvalidCredentials
 	}
 	if err != nil {
 		return User{}, Session{}, fmt.Errorf("load user: %w", err)
 	}
-	matches, err := VerifyPassword(password, passwordHash)
+	matches, err := VerifyPassword(password, *passwordHash)
 	if err != nil {
 		return User{}, Session{}, fmt.Errorf("verify password: %w", err)
 	}
@@ -203,8 +203,8 @@ func validateRegistration(input RegisterInput) (string, string, map[string]strin
 
 func validateDisplayName(displayName string) string {
 	length := utf8.RuneCountInString(displayName)
-	if length < 1 || length > 80 {
-		return "must be between 1 and 80 characters"
+	if length < 1 || length > maxDisplayNameLength {
+		return fmt.Sprintf("must be between 1 and %d characters", maxDisplayNameLength)
 	}
 	return ""
 }

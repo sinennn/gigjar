@@ -166,6 +166,9 @@ func TestRollbackRefusesToDestroySettlements(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if err := migrator.DownOne(); err != nil {
+		t.Fatalf("rolling back 000008 without google-only users must work: %v", err)
+	}
 	err = migrator.DownOne()
 	if err == nil {
 		t.Fatal("rolling back settlements with data must be refused")
@@ -173,5 +176,30 @@ func TestRollbackRefusesToDestroySettlements(t *testing.T) {
 	var settlements int
 	if err := conn.QueryRow(ctx, `SELECT count(*) FROM settlements`).Scan(&settlements); err != nil || settlements != 1 {
 		t.Fatalf("settlement data must be untouched: %d, %v", settlements, err)
+	}
+}
+
+func TestRollbackRefusesToStrandGoogleOnlyUsers(t *testing.T) {
+	ctx := context.Background()
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	url := scratchDatabase(t)
+	migrator, err := NewMigrator(url, logger)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer migrator.Close()
+	if err := migrator.Up(); err != nil {
+		t.Fatal(err)
+	}
+	conn, err := pgx.Connect(ctx, url)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close(ctx)
+	if _, err := conn.Exec(ctx, `INSERT INTO users (email, password_hash, display_name) VALUES ('google-only@test.gigjar', NULL, 'G')`); err != nil {
+		t.Fatal(err)
+	}
+	if err := migrator.DownOne(); err == nil {
+		t.Fatal("rolling back while google-only users exist must be refused")
 	}
 }
