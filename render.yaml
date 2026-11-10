@@ -33,31 +33,12 @@ services:
       - key: GIGJAR_HTTP_ADDR
         value: ":10000"
       - key: GIGJAR_PUBLIC_WEB_URL
-        value: https://gigjar-web-cd65.onrender.com
+        sync: false
       - key: GIGJAR_CORS_ALLOWED_ORIGINS
-        value: https://gigjar-web-cd65.onrender.com
+        sync: false
       - key: GIGJAR_SIGNER_TOKEN
         generateValue: true
       - key: GIGJAR_SIGNER_SEED
         sync: false
       - key: GIGJAR_TRONGRID_API_KEY
         sync: false
-
-  - type: web
-    name: gigjar-web
-    runtime: node
-    plan: free
-    region: frankfurt
-    rootDir: apps/web
-    buildCommand: corepack enable && pnpm install --frozen-lockfile && pnpm build
-    startCommand: pnpm start
-    autoDeployTrigger: commit
-    buildFilter:
-      paths:
-        - apps/web/**
-        - packages/contracts/**
-    envVars:
-      - key: NODE_VERSION
-        value: "22"
-      - key: GIGJAR_API_ORIGIN
-        value: https://gigjar-api-cd65.onrender.com
