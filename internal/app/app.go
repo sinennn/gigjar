@@ -6,9 +6,7 @@ import (
 	"log/slog"
 	"net/http"
 	"time"
-
 	"github.com/jackc/pgx/v5/pgxpool"
-
 	"gigjar/internal/ai"
 	"gigjar/internal/chain"
 	"gigjar/internal/chain/simulated"
