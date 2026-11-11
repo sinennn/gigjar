@@ -15,6 +15,7 @@ import (
 	"gigjar/internal/googleauth"
 	"gigjar/internal/identity"
 	"gigjar/internal/jars"
+	"gigjar/internal/mail"
 	"gigjar/internal/paylinks"
 	"gigjar/internal/tron"
 )
@@ -33,6 +34,7 @@ type RouterConfig struct {
 	SecureCookies  bool
 	Google         *googleauth.Client
 	AI             *ai.Service
+	Mailer         mail.Sender
 }
 
 type api struct {
@@ -49,6 +51,8 @@ type api struct {
 	ai            *ai.Service
 	aiPerUser     *attemptLimiter
 	aiGlobal      *attemptLimiter
+	mailer        mail.Sender
+	resetAttempts *attemptLimiter
 }
 
 func NewRouter(cfg RouterConfig) (http.Handler, error) {
@@ -80,6 +84,8 @@ func NewRouter(cfg RouterConfig) (http.Handler, error) {
 	health := healthHandlers{logger: cfg.Logger, readiness: cfg.Readiness}
 	router.Get("/healthz", health.live)
 	router.Get("/readyz", health.ready)
+	router.Get("/docs", serveDocs)
+	router.Get("/openapi.yaml", serveOpenAPI)
 
 	a := &api{
 		logger:        cfg.Logger,
@@ -95,6 +101,11 @@ func NewRouter(cfg RouterConfig) (http.Handler, error) {
 		ai:            cfg.AI,
 		aiPerUser:     newAttemptLimiter(30, time.Hour),
 		aiGlobal:      newAttemptLimiter(25, time.Minute),
+		mailer:        cfg.Mailer,
+		resetAttempts: newAttemptLimiter(5, time.Hour),
+	}
+	if a.mailer == nil {
+		a.mailer = mail.NewLogSender(cfg.Logger, false)
 	}
 
 	router.Route("/v1", func(v1 chi.Router) {
@@ -104,6 +115,8 @@ func NewRouter(cfg RouterConfig) (http.Handler, error) {
 		v1.Post("/auth/login", a.login)
 		v1.Post("/auth/logout", a.logout)
 		v1.Get("/auth/providers", a.getProviders)
+		v1.Post("/auth/password/forgot", a.forgotPassword)
+		v1.Post("/auth/password/reset", a.resetPassword)
 		v1.Get("/auth/google/start", a.startGoogleSignIn)
 		v1.Get("/auth/google/callback", a.finishGoogleSignIn)
 		v1.Get("/public/pay/{reference}", a.getPublicPayment)

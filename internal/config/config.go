@@ -50,6 +50,15 @@ type API struct {
 	GoogleRedirectURL   string
 	GroqAPIKey          string
 	GroqModel           string
+	SMTPHost            string
+	SMTPPort            int
+	SMTPUsername        string
+	SMTPPassword        string
+	MailFrom            string
+}
+
+func (a API) SMTPEnabled() bool {
+	return a.SMTPHost != ""
 }
 
 func (a API) GoogleEnabled() bool {
@@ -101,6 +110,19 @@ func LoadAPI(lookup LookupFunc) (API, error) {
 	}
 	cfg.GroqAPIKey = reader.string("GIGJAR_GROQ_API_KEY", "")
 	cfg.GroqModel = reader.string("GIGJAR_GROQ_MODEL", "openai/gpt-oss-20b")
+	cfg.SMTPHost = reader.string("GIGJAR_SMTP_HOST", "")
+	cfg.SMTPPort = reader.integer("GIGJAR_SMTP_PORT", 587)
+	cfg.SMTPUsername = reader.string("GIGJAR_SMTP_USERNAME", "")
+	cfg.SMTPPassword = reader.string("GIGJAR_SMTP_PASSWORD", "")
+	cfg.MailFrom = reader.string("GIGJAR_MAIL_FROM", "")
+	if cfg.SMTPHost != "" {
+		if cfg.MailFrom == "" {
+			reader.fail("GIGJAR_MAIL_FROM", "is required when GIGJAR_SMTP_HOST is set")
+		}
+		if cfg.SMTPPort <= 0 || cfg.SMTPPort > 65535 {
+			reader.fail("GIGJAR_SMTP_PORT", "must be a valid port")
+		}
+	}
 	cfg.SecureCookies = reader.boolean("GIGJAR_SECURE_COOKIES", cfg.Environment.IsProduction())
 	reader.requirePositive("GIGJAR_SESSION_TTL", cfg.SessionTTL)
 	if parsed, err := url.Parse(cfg.PublicWebURL); err != nil || parsed.Scheme == "" || parsed.Host == "" {

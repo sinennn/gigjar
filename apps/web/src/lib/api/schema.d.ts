@@ -84,6 +84,47 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/auth/password/forgot": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * @description Emails a single-use link to `<site>/reset-password?token=…` that is valid for 30 minutes. Requesting a new link
+         *     cancels older ones. The response is the same whether or not the email has an account, so the endpoint cannot be
+         *     used to discover accounts. Also lets Google-only accounts set a password. At most 5 requests per email per hour.
+         */
+        post: operations["forgotPassword"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/auth/password/reset": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * @description Sets a new password using the token from the reset link. Signs out every existing session, then signs the user in
+         *     (sets the session cookie) and returns the user.
+         */
+        post: operations["resetPassword"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/auth/providers": {
         parameters: {
             query?: never;
@@ -409,7 +450,8 @@ export interface components {
          *     too_many_attempts, unauthenticated, cross_origin_rejected, payment_link_not_found, idempotency_key_conflict,
          *     cleva_destination_not_set, jar_not_found, jar_not_ready, not_ready, not_found, method_not_allowed, internal_error,
          *     google_sign_in_unavailable, ai_unavailable (no key configured), ai_rate_limited (429, per-student hourly limit),
-         *     ai_busy (503, retry after the Retry-After header), ai_failed (502, the model gave an unusable answer).
+         *     ai_busy (503, retry after the Retry-After header), ai_failed (502, the model gave an unusable answer),
+         *     reset_token_invalid (400).
          */
         ErrorBody: {
             error: {
@@ -726,6 +768,74 @@ export interface operations {
                 };
                 content?: never;
             };
+        };
+    };
+    forgotPassword: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** Format: email */
+                    email: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Accepted. Show "if an account exists, we've emailed a link". */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        status: string;
+                    };
+                };
+            };
+            422: components["responses"]["Error"];
+            429: components["responses"]["Error"];
+        };
+    };
+    resetPassword: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    token: string;
+                    password: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Password changed and signed in. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["User"];
+                };
+            };
+            /** @description `reset_token_invalid`: the link is wrong, already used or expired. Offer to send a new one. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            422: components["responses"]["Error"];
         };
     };
     getAuthProviders: {

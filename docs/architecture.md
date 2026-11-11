@@ -276,3 +276,21 @@ Gas: a TRC20 transfer from the jar address needs TRX (energy and bandwidth). Bef
   - Groq 429s and 5xx responses surface as `503 ai_busy` with `Retry-After`.
   - With no key configured the endpoints answer `503 ai_unavailable`, and `/v1/auth/providers` tells the UI which features are on.
 
+## 13. Password reset and API docs
+
+- **`POST /v1/auth/password/forgot`** answers 202 with the same body whether or not the email exists, and does the lookup and send in the background so timing reveals nothing either.
+  - It creates a single-use token, stored only as SHA-256 in `password_resets` and valid for 30 minutes. A new request cancels older links.
+  - It is limited to 5 requests per email per hour.
+- **`POST /v1/auth/password/reset`**:
+  1. checks the token (unused, unexpired);
+  2. sets the password;
+  3. marks the token used;
+  4. revokes every session;
+  5. signs the user in.
+
+  It all happens in one transaction. It also lets Google-only accounts set a password.
+- **Email** goes through `internal/mail`, plain SMTP with STARTTLS (or TLS on 465), configured by `GIGJAR_SMTP_*`.
+  - Credentials are never sent over a connection without TLS.
+  - Without SMTP, development logs the email body (and so the link), and production logs only a warning with the recipient's domain.
+- **Swagger UI** at `/docs` loads `swagger-ui-dist` 5.17.14 from jsDelivr, and the spec from the embedded `packages/contracts/openapi.yaml` at `/openapi.yaml`, using a relative URL so it also works under the site's `/api` proxy. The Go images copy `packages/contracts`.
+

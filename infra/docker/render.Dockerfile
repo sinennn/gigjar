@@ -4,6 +4,7 @@ COPY go.mod go.sum ./
 RUN go mod download
 COPY internal ./internal
 COPY migrations ./migrations
+COPY packages/contracts ./packages/contracts
 COPY services ./services
 RUN CGO_ENABLED=0 go build -trimpath -o /out/gigjar ./services/gigjar
 
