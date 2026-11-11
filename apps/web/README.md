@@ -45,7 +45,7 @@ The simulator route exists only on the simulated network. Never build UI that de
 
 ## Design direction
 
-Warm, minimal and approachable, not a crypto exchange. The palette and type come from the pitch deck: ink navy, cream background, jar green for money that has arrived, lid orange for thresholds and warnings, and Space Grotesk headings over Inter. The tokens are in `src/app/globals.css`. Two rules:
+Warm, minimal and approachable, not a crypto exchange. The palette and type come from the pitch deck: ink navy, cream background, jar green for money that has arrived, lid orange for thresholds and warnings, and Space Grotesk headings over Inter. The tokens are in `src/app/globals.css`, and the full guide (Liquid Glass, motion, the 3D jar, copy rules) is in [DESIGN.md](DESIGN.md). Two rules:
 
 - **Simulated network.** Whenever the API returns `network: "simulated"`, show a persistent, unmistakable "Simulated" badge.
 - **TRC20 warning.** Every place a pay-to address appears must say "USDT on TRON (TRC20) only".
