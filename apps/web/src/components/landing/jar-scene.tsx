@@ -95,7 +95,7 @@ export function JarScene() {
     if (!el) return;
     let disposed = false;
     let stop = () => {};
-    mount(el, () => !disposed && setState("ready"))
+    mount(el, () => !disposed && setState("ready"), () => disposed)
       .then((cleanup) => {
         if (disposed) cleanup();
         else stop = cleanup;
@@ -132,16 +132,36 @@ type Coin = {
   entering: boolean;
 };
 
-async function mount(host: HTMLDivElement, onReady: () => void): Promise<() => void> {
+let rapierReady: Promise<typeof RapierModule> | null = null;
+
+/**
+ * Rapier's wasm must be initialised exactly once per page. React StrictMode runs the effect
+ * twice in dev, so two mounts can race; a second `init()` replaces the module's wasm instance
+ * while the first mount's world still points into the old one, and every later call panics
+ * ("recursive use of an object detected"). Share one promise instead.
+ */
+function loadRapier(): Promise<typeof RapierModule> {
+  rapierReady ??= import("@dimforge/rapier3d-compat").then(async (m) => {
+    await m.default.init();
+    return m.default;
+  });
+  return rapierReady;
+}
+
+async function mount(
+  host: HTMLDivElement,
+  onReady: () => void,
+  isDisposed: () => boolean,
+): Promise<() => void> {
   const [THREE, { RoomEnvironment }, { RoundedBoxGeometry }, RAPIER] = await Promise.all([
     import("three"),
     import("three/addons/environments/RoomEnvironment.js"),
     import("three/addons/geometries/RoundedBoxGeometry.js"),
-    import("@dimforge/rapier3d-compat").then(async (m) => {
-      await m.default.init();
-      return m.default;
-    }),
+    loadRapier(),
   ]);
+
+  // The effect was cleaned up while the modules loaded (StrictMode's first mount): build nothing.
+  if (isDisposed()) return () => {};
 
   const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
   const rand = seeded(7);
