@@ -9,13 +9,22 @@ import { ImageResponse } from "next/og";
 export const OG_SIZE = { width: 1200, height: 630 };
 export const OG_ALT = "GigJar. Small gigs add up: a glass jar of USDT coins that pays out to Cleva at $12.";
 
-const assets = join(process.cwd(), "assets");
-const [jar, spaceGrotesk, interRegular, interSemiBold] = await Promise.all([
-  readFile(join(assets, "og-jar.png"), "base64"),
-  readFile(join(assets, "SpaceGrotesk-Bold.ttf")),
-  readFile(join(assets, "Inter-Regular.ttf")),
-  readFile(join(assets, "Inter-SemiBold.ttf")),
-]);
+/**
+ * Reads the jar render and fonts from disk. Only call it while drawing the card, never at module
+ * load: request-time pages import this module to read OG_ALT and OG_SIZE for their metadata, and
+ * on Cloudflare Workers there is no disk, so a top-level read broke /login and /app. The card itself
+ * is prerendered at build time, where the files exist.
+ */
+async function loadAssets() {
+  const assets = join(process.cwd(), "assets");
+  const [jar, spaceGrotesk, interRegular, interSemiBold] = await Promise.all([
+    readFile(join(assets, "og-jar.png"), "base64"),
+    readFile(join(assets, "SpaceGrotesk-Bold.ttf")),
+    readFile(join(assets, "Inter-Regular.ttf")),
+    readFile(join(assets, "Inter-SemiBold.ttf")),
+  ]);
+  return { jar, spaceGrotesk, interRegular, interSemiBold };
+}
 
 const INK = "#13263a";
 const INK_SOFT = "#3d4f63";
@@ -23,7 +32,8 @@ const CREAM = "#f6f3ec";
 const GREEN = "#219e7a";
 const ORANGE = "#e8922f";
 
-export function ogCard() {
+export async function ogCard() {
+  const { jar, spaceGrotesk, interRegular, interSemiBold } = await loadAssets();
   return new ImageResponse(
     (
       <div
