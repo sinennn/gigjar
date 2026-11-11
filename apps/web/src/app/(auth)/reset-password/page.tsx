@@ -1,19 +1,14 @@
-import { ScreenScaffold } from "@/components/screen-scaffold";
+import { ResetPasswordForm } from "@/components/auth/auth-forms";
+import { AuthHeading } from "@/components/auth/auth-heading";
 
 export const metadata = { title: "Choose a new password" };
 
-export default function ResetPasswordPage() {
+export default async function ResetPasswordPage({ searchParams }: PageProps<"/reset-password">) {
+  const { token } = await searchParams;
   return (
-    <ScreenScaffold
-      title={"Choose a new password"}
-      summary={"Opened from the reset email. The token is in the ?token= query parameter."}
-      mustShow={[
-        "New password field (10 to 128 characters) and a Save button",
-        "On success the user is signed in (session cookie set): go to /dashboard",
-        "400 reset_token_invalid: \"This link is invalid, used or expired\", with a link to /forgot-password",
-        "Note that saving signs out every other device",
-      ]}
-      endpoints={["POST /v1/auth/password/reset"]}
-    />
+    <div className="space-y-6">
+      <AuthHeading title="Choose a new password" summary="You will be logged in once it is saved." />
+      <ResetPasswordForm token={typeof token === "string" ? token : ""} />
+    </div>
   );
 }

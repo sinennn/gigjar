@@ -80,3 +80,23 @@ body {
     visibility: hidden;
   }
 }
+
+/* Page content eases in on every app screen. Skipped when motion is reduced. */
+@media (prefers-reduced-motion: no-preference) {
+  .page-in {
+    animation: page-in 0.7s cubic-bezier(0.16, 1, 0.3, 1) both;
+  }
+}
+
+@keyframes page-in {
+  from {
+    opacity: 0;
+    transform: translateY(14px);
+  }
+}
+
+/* Keep keyboard focus obvious on everything that can take it. */
+:where(a, button, input, textarea, select, summary):focus-visible {
+  outline: 2px solid var(--color-ink);
+  outline-offset: 3px;
+}

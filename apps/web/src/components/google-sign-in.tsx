@@ -6,7 +6,7 @@ const errorMessages: Record<string, string> = {
   google_failed: "Google sign-in didn't work. Please try again.",
 };
 
-export function GoogleSignInButton({ returnTo = "/dashboard" }: { returnTo?: string }) {
+export function GoogleSignInButton({ returnTo = "/app" }: { returnTo?: string }) {
   const href = `/api/v1/auth/google/start?return_to=${encodeURIComponent(returnTo)}`;
   return (
     <a
