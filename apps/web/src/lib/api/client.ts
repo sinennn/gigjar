@@ -56,6 +56,16 @@ export async function apiRequest<TResponse>(path: string, options: RequestOption
   return payload as TResponse;
 }
 
+export type FormError = { message: string; fields: Record<string, string> };
+
+/** Turns anything a failed request can throw into text a form can show. */
+export function describeError(error: unknown): FormError {
+  if (error instanceof ApiError) {
+    return { message: error.message, fields: error.fields };
+  }
+  return { message: "We couldn't reach the server. Check your connection and try again.", fields: {} };
+}
+
 function isErrorBody(value: unknown): value is ApiErrorBody {
   return (
     typeof value === "object" &&
