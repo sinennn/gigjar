@@ -166,9 +166,7 @@ func TestRollbackRefusesToDestroySettlements(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := migrator.DownOne(); err != nil {
-		t.Fatalf("rolling back 000008 without google-only users must work: %v", err)
-	}
+	stepDownTo(t, migrator, 7)
 	err = migrator.DownOne()
 	if err == nil {
 		t.Fatal("rolling back settlements with data must be refused")
@@ -199,7 +197,24 @@ func TestRollbackRefusesToStrandGoogleOnlyUsers(t *testing.T) {
 	if _, err := conn.Exec(ctx, `INSERT INTO users (email, password_hash, display_name) VALUES ('google-only@test.gigjar', NULL, 'G')`); err != nil {
 		t.Fatal(err)
 	}
+	stepDownTo(t, migrator, 8)
 	if err := migrator.DownOne(); err == nil {
 		t.Fatal("rolling back while google-only users exist must be refused")
+	}
+}
+
+func stepDownTo(t *testing.T, migrator *Migrator, version int64) {
+	t.Helper()
+	for {
+		status, err := migrator.Version()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if status.Version <= version {
+			return
+		}
+		if err := migrator.DownOne(); err != nil {
+			t.Fatalf("rolling back from %d: %v", status.Version, err)
+		}
 	}
 }

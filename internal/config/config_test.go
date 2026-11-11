@@ -249,3 +249,21 @@ func TestLoadSweeperAcceptsHostPortSignerAddress(t *testing.T) {
 		t.Fatalf("signer url = %q, %v", cfg.SignerURL, err)
 	}
 }
+
+func TestLoadAPISMTPNeedsSender(t *testing.T) {
+	_, err := LoadAPI(lookupFrom(map[string]string{
+		"GIGJAR_DATABASE_URL": "postgres://localhost/gigjar",
+		"GIGJAR_SMTP_HOST":    "smtp-relay.brevo.com",
+	}))
+	if err == nil || !strings.Contains(err.Error(), "GIGJAR_MAIL_FROM") {
+		t.Fatalf("err = %v", err)
+	}
+	cfg, err := LoadAPI(lookupFrom(map[string]string{
+		"GIGJAR_DATABASE_URL": "postgres://localhost/gigjar",
+		"GIGJAR_SMTP_HOST":    "smtp-relay.brevo.com",
+		"GIGJAR_MAIL_FROM":    "GigJar <no-reply@example.com>",
+	}))
+	if err != nil || !cfg.SMTPEnabled() || cfg.SMTPPort != 587 {
+		t.Fatalf("cfg = %+v err = %v", cfg, err)
+	}
+}

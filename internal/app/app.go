@@ -21,6 +21,7 @@ import (
 	"gigjar/internal/httpapi"
 	"gigjar/internal/identity"
 	"gigjar/internal/jars"
+	"gigjar/internal/mail"
 	"gigjar/internal/paylinks"
 	"gigjar/internal/settlement"
 	"gigjar/internal/tron"
@@ -56,7 +57,15 @@ func NewAPIHandler(cfg config.API, pool *pgxpool.Pool, logger *slog.Logger) (htt
 	}
 	assistant := ai.NewService(ai.NewGroq(ai.GroqConfig{APIKey: cfg.GroqAPIKey, Model: cfg.GroqModel}),
 		pool, cfg.Network, cfg.SettlementThreshold, cfg.SettlementFee)
-	logger.Info("optional features", "google_sign_in", google != nil, "ai", assistant.Enabled(), "ai_model", cfg.GroqModel)
+	var mailer mail.Sender = mail.NewLogSender(logger, !cfg.Environment.IsProduction())
+	if cfg.SMTPEnabled() {
+		smtpSender, err := mail.NewSMTP(mail.SMTPConfig{Host: cfg.SMTPHost, Port: cfg.SMTPPort, Username: cfg.SMTPUsername, Password: cfg.SMTPPassword, From: cfg.MailFrom})
+		if err != nil {
+			return nil, err
+		}
+		mailer = smtpSender
+	}
+	logger.Info("optional features", "google_sign_in", google != nil, "ai", assistant.Enabled(), "ai_model", cfg.GroqModel, "email", mailer.Configured())
 	return httpapi.NewRouter(httpapi.RouterConfig{
 		Logger:         logger,
 		AllowedOrigins: cfg.CORSAllowedOrigins,
@@ -71,6 +80,7 @@ func NewAPIHandler(cfg config.API, pool *pgxpool.Pool, logger *slog.Logger) (htt
 		SecureCookies:  cfg.SecureCookies,
 		Google:         google,
 		AI:             assistant,
+		Mailer:         mailer,
 	})
 }
 

@@ -100,6 +100,9 @@ All services read `GIGJAR_*` environment variables. See [.env.example](.env.exam
 | `GIGJAR_GOOGLE_CLIENT_ID` / `GIGJAR_GOOGLE_CLIENT_SECRET` | none | Turns on "Continue with Google". Both or neither. The Google OAuth client's authorized redirect URI is `<GIGJAR_PUBLIC_WEB_URL>/api/v1/auth/google/callback`. |
 | `GIGJAR_GOOGLE_REDIRECT_URL` | `<GIGJAR_PUBLIC_WEB_URL>/api/v1/auth/google/callback` | Override only if the site is served elsewhere |
 | `GIGJAR_GROQ_API_KEY` | none | Turns on the AI features (link writer, earnings insights, help assistant). Without it they answer `503 ai_unavailable`. |
+| `GIGJAR_SMTP_HOST` / `GIGJAR_SMTP_PORT` | none / `587` | Sends password-reset emails. Any SMTP provider works: Brevo `smtp-relay.brevo.com`, Resend `smtp.resend.com`, or Gmail with an app password. Port 465 uses TLS; any other port requires STARTTLS. Without it, development logs the reset link and production logs a warning. |
+| `GIGJAR_SMTP_USERNAME` / `GIGJAR_SMTP_PASSWORD` | none | SMTP login |
+| `GIGJAR_MAIL_FROM` | none | Sender, e.g. `GigJar <no-reply@yourdomain>`. Required when `GIGJAR_SMTP_HOST` is set. |
 | `GIGJAR_GROQ_MODEL` | `openai/gpt-oss-20b` | Any Groq model that supports strict JSON-schema output |
 | `GIGJAR_SIGNER_SEED` | none | Signer only. Real networks only. Never logged. |
 | `GIGJAR_SIGNER_TOKEN` | none | Shared secret between the sweeper and the signer, at least 32 characters. |
@@ -120,6 +123,11 @@ All services read `GIGJAR_*` environment variables. See [.env.example](.env.exam
 | `GIGJAR_WATCHER_CURSOR_OVERLAP` | `10m` | How far each poll looks back past the newest seen transfer |
 | `GIGJAR_WATCHER_DROP_AFTER` | `24h` | A transfer that never solidifies is marked failed after this |
 | `GIGJAR_WATCHER_RECONCILE_INTERVAL` | `10m` | |
+
+## API docs
+
+- `GET /docs`: Swagger UI for the OpenAPI contract, which is embedded in the binary from `packages/contracts/openapi.yaml`. Use https://gigjar-api-cd65.onrender.com/docs, or https://gigjar.pages.dev/api/docs (pick the `/api` server there).
+- `GET /openapi.yaml`: the raw contract.
 
 ## Health
 
