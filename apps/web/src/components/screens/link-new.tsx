@@ -12,6 +12,8 @@ import { Field, TextArea } from "@/components/ui/field";
 import { Glass } from "@/components/ui/glass";
 import { Icon } from "@/components/ui/icons";
 import { PageHeader } from "@/components/ui/page";
+import { SlowNote } from "@/components/ui/slow-note";
+import { useSlow } from "@/lib/use-slow";
 
 export function NewLinkScreen() {
   const router = useRouter();
@@ -19,6 +21,7 @@ export function NewLinkScreen() {
   const [description, setDescription] = useState("");
   const [amount, setAmount] = useState("");
   const [busy, setBusy] = useState(false);
+  const slow = useSlow(busy);
   const [error, setError] = useState<FormError | null>(null);
   // One key per form state: a retry after a dropped connection reuses it (the API then returns the
   // original link instead of making a duplicate), and any edit starts a new one.
@@ -126,6 +129,7 @@ export function NewLinkScreen() {
               Cancel
             </Button>
           </div>
+          <SlowNote show={slow} />
         </form>
       </Glass>
     </>

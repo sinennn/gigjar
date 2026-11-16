@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Suspense } from "react";
 import { AppShell } from "@/components/app/app-shell";
+import { ApiDown } from "@/components/auth/api-down";
 import { ToLogin } from "@/components/auth/to-login";
 import { Backdrop } from "@/components/backdrop";
 import { JarMark } from "@/components/jar-mark";
@@ -18,7 +19,13 @@ export default function AppLayout({ children }: LayoutProps<"/app">) {
 
 /** Signed-in screens only. No valid session sends the visitor to the login page. */
 async function Gate({ children }: { children: React.ReactNode }) {
-  const user = await getCurrentUser();
+  let user: Awaited<ReturnType<typeof getCurrentUser>>;
+  try {
+    user = await getCurrentUser();
+  } catch {
+    // The API is asleep or unreachable. Say so, and let the visitor retry. Never treat it as signed out.
+    return <ApiDown />;
+  }
   if (!user) {
     return <ToLogin />;
   }

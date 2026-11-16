@@ -6,14 +6,17 @@ import { useState, type FormEvent, type ReactNode } from "react";
 import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Field } from "@/components/ui/field";
+import { SlowNote } from "@/components/ui/slow-note";
 import { apiRequest, describeError, type FormError, type Schemas } from "@/lib/api/client";
 import { DEFAULT_RETURN } from "@/lib/return-to";
+import { useSlow } from "@/lib/use-slow";
 
 const NO_ERROR: FormError = { message: "", fields: {} };
 
 /** Sends a form to the API and keeps its busy and error state. */
 function useSubmit() {
   const [busy, setBusy] = useState(false);
+  const slow = useSlow(busy);
   const [error, setError] = useState<FormError>(NO_ERROR);
   const run = async (send: () => Promise<void>) => {
     setBusy(true);
@@ -27,7 +30,7 @@ function useSubmit() {
   };
   /** Shows field messages found in the browser, without calling the API. */
   const reject = (fields: Record<string, string>) => setError({ message: "", fields });
-  return { busy, error, run, reject };
+  return { busy, slow, error, run, reject };
 }
 
 /** Keeps "where you were going" on the links between the log in and register pages. */
@@ -49,7 +52,7 @@ const linkClass = "font-medium text-ink underline decoration-line underline-offs
 
 export function LoginForm({ returnTo = DEFAULT_RETURN }: { returnTo?: string }) {
   const router = useRouter();
-  const { busy, error, run, reject } = useSubmit();
+  const { busy, slow, error, run, reject } = useSubmit();
   const onSubmit = (e: FormEvent<HTMLFormElement>) => {
     const v = values(e);
     const email = v("email").trim();
@@ -89,6 +92,7 @@ export function LoginForm({ returnTo = DEFAULT_RETURN }: { returnTo?: string }) 
       <Button type="submit" size="lg" loading={busy} className="w-full">
         Log in
       </Button>
+      <SlowNote show={slow} />
       <Footer>
         New here?{" "}
         <Link href={withReturn("/register", returnTo)} className={linkClass}>
@@ -101,7 +105,7 @@ export function LoginForm({ returnTo = DEFAULT_RETURN }: { returnTo?: string }) 
 
 export function RegisterForm({ returnTo = DEFAULT_RETURN }: { returnTo?: string }) {
   const router = useRouter();
-  const { busy, error, run } = useSubmit();
+  const { busy, slow, error, run } = useSubmit();
   const onSubmit = (e: FormEvent<HTMLFormElement>) => {
     const v = values(e);
     void run(async () => {
@@ -139,6 +143,7 @@ export function RegisterForm({ returnTo = DEFAULT_RETURN }: { returnTo?: string 
       <Button type="submit" size="lg" loading={busy} className="w-full">
         Create your jar
       </Button>
+      <SlowNote show={slow} />
       <Footer>
         Already have a jar?{" "}
         <Link href={withReturn("/login", returnTo)} className={linkClass}>
@@ -150,7 +155,7 @@ export function RegisterForm({ returnTo = DEFAULT_RETURN }: { returnTo?: string 
 }
 
 export function ForgotPasswordForm() {
-  const { busy, error, run } = useSubmit();
+  const { busy, slow, error, run } = useSubmit();
   const [sent, setSent] = useState(false);
   const onSubmit = (e: FormEvent<HTMLFormElement>) => {
     const v = values(e);
@@ -178,6 +183,7 @@ export function ForgotPasswordForm() {
       <Button type="submit" size="lg" loading={busy} className="w-full">
         Send the link
       </Button>
+      <SlowNote show={slow} />
       <Footer>
         Remembered it?{" "}
         <Link href="/login" className={linkClass}>
@@ -190,7 +196,7 @@ export function ForgotPasswordForm() {
 
 export function ResetPasswordForm({ token }: { token: string }) {
   const router = useRouter();
-  const { busy, error, run } = useSubmit();
+  const { busy, slow, error, run } = useSubmit();
   if (!token) {
     return (
       <div className="space-y-4">
@@ -239,6 +245,7 @@ export function ResetPasswordForm({ token }: { token: string }) {
       <Button type="submit" size="lg" loading={busy} className="w-full">
         Save and log in
       </Button>
+      <SlowNote show={slow} />
     </form>
   );
 }
