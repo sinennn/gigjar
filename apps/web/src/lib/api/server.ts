@@ -2,6 +2,7 @@ import "server-only";
 import { cache } from "react";
 import { cookies } from "next/headers";
 import type { Schemas } from "./client";
+import { fetchWaitingForApi } from "./upstream";
 
 export function apiOrigin(): string {
   return (process.env.GIGJAR_API_ORIGIN ?? "http://localhost:8090").replace(/\/+$/, "");
@@ -18,7 +19,14 @@ export async function apiFetchServer(path: string, init: RequestInit = {}): Prom
   if (cookieHeader) {
     headers.set("Cookie", cookieHeader);
   }
-  return fetch(`${apiOrigin()}${path}`, { ...init, headers, cache: "no-store", redirect: "manual" });
+  // A sleeping or restarting API is waited out (a shorter budget than the browser proxy, because a
+  // page is waiting on this). Past that the caller sees the gateway response and decides.
+  const repeatable = !init.method || init.method === "GET" || init.method === "HEAD";
+  return fetchWaitingForApi(
+    `${apiOrigin()}${path}`,
+    { ...init, headers, cache: "no-store", redirect: "manual" },
+    { deadlineMs: 30_000, retryConnectionErrors: repeatable },
+  );
 }
 
 /**
@@ -31,6 +39,7 @@ export const getCurrentUser = cache(async (): Promise<Schemas["User"] | null> =>
     return null;
   }
   if (!response.ok) {
+    await response.body?.cancel();
     throw new Error(`could not load your session (API status ${response.status})`);
   }
   return (await response.json()) as Schemas["User"];

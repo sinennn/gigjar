@@ -1,3 +1,5 @@
+import { fetchWaitingForApi, isGatewayFailure, unavailableResponse } from "@/lib/api/upstream";
+
 const forwardedRequestHeaders = [
   "accept",
   "accept-language",
@@ -33,13 +35,30 @@ async function proxy(request: Request, context: RouteContext<"/api/[...path]">):
   headers.set("x-forwarded-proto", incoming.protocol.replace(":", ""));
 
   const hasBody = request.method !== "GET" && request.method !== "HEAD";
-  const upstream = await fetch(target, {
-    method: request.method,
-    headers,
-    body: hasBody ? await request.arrayBuffer() : undefined,
-    redirect: "manual",
-    cache: "no-store",
-  });
+  const repeatable = request.method === "GET" || request.method === "HEAD" || request.method === "OPTIONS";
+  let upstream: Response;
+  try {
+    // The API sleeps when idle and is replaced on deploys, so its host's edge answers a gateway error
+    // for a while. Wait that out (up to 45 s) rather than showing "request failed with status 502".
+    // A dropped connection is only retried for requests that are safe to repeat.
+    upstream = await fetchWaitingForApi(
+      target,
+      {
+        method: request.method,
+        headers,
+        body: hasBody ? await request.arrayBuffer() : undefined,
+        redirect: "manual",
+        cache: "no-store",
+      },
+      { retryConnectionErrors: repeatable },
+    );
+  } catch {
+    return unavailableResponse();
+  }
+  if (isGatewayFailure(upstream)) {
+    await upstream.body?.cancel();
+    return unavailableResponse();
+  }
 
   const responseHeaders = new Headers();
   upstream.headers.forEach((value, name) => {
