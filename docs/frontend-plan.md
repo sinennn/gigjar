@@ -13,7 +13,7 @@ Last updated 2026-11-15.
 | 0 | Foundations | Done |
 | 1 | Design system and landing page | Done |
 | 2 | Authentication | Done, checked against a real API |
-| 3 | App shell and the nine signed-in screens | Built, not yet tried with real data |
+| 3 | App shell and the nine signed-in screens | Done, checked with real data |
 | 4 | Public payment page | Not started (still a placeholder) |
 | 5 | End-to-end check on the simulated network | Not started |
 | 6 | AI features | Not started (API is ready) |
@@ -72,17 +72,17 @@ All routes are under `/app`. Old paths such as `/dashboard` and `/links` redirec
 - [x] Settlements (payouts)
 - [x] Cleva wallet (save and clear the deposit address)
 - [x] Settings (profile, log out)
-- [ ] Open every screen with a real account and fix what looks wrong, at 390px and 1440px
-- [ ] Overview shows the jar balance, pending, remaining to $12, recent payments and last payout from the live API
-- [ ] Prompt to add a Cleva address when none is set, since no payout happens without one
-- [ ] "Simulated" badge visible on every screen whenever `network` is `simulated`
-- [ ] "USDT on TRON (TRC20) only" shown everywhere a pay-to address appears
-- [ ] Read the threshold and fee from the API (`settlement_threshold`, `settlement_fee`), never hard-code them
-- [ ] Money always shown through `formatUsdt`; no screen converts an amount to `number`
-- [ ] New link: warn that a client must send the exact amount. The API attributes a transfer to the oldest open link with that exact amount, so two open links with the same amount are ambiguous
-- [ ] Link detail: share actions (copy the pay URL, share sheet on phones), close a link, and its transfers
-- [ ] Transactions and incoming transfers: paging through `next_cursor`, with pending, confirmed and failed states
-- [ ] Refresh the data while something is pending (poll, pausing when the tab is hidden)
+- [x] Open every screen with a real account and fix what looks wrong, at 390px and 1440px
+- [x] Overview shows the jar balance, pending, remaining to $12, recent payments and last payout from the live API
+- [x] Prompt to add a Cleva address when none is set, since no payout happens without one
+- [x] "Simulated" badge visible on every screen whenever `network` is `simulated`
+- [x] "USDT on TRON (TRC20) only" shown everywhere a pay-to address appears in the app (the public page is phase 4)
+- [x] Read the threshold and fee from the API (`settlement_threshold`, `settlement_fee`), never hard-code them
+- [x] Money always shown through `formatUsdt`; no screen converts an amount to `number`
+- [x] New link: warn that a client must send the exact amount. The API attributes a transfer to the oldest open link with that exact amount, so two open links with the same amount are ambiguous
+- [x] Link detail: share actions (copy the pay URL, share sheet on phones), close a link, and its transfers
+- [x] Transactions and incoming transfers: paging through `next_cursor`, with pending, confirmed and failed states
+- [x] Refresh the data while something is pending (poll, pausing when the tab is hidden)
 
 ## Phase 4: Public payment page
 
