@@ -15,7 +15,7 @@ type AuthProviders = { google: boolean; ai: boolean };
  * instead of popping in and shoving the form down. It also owns its bottom gap
  * (`mb-0` overrides the parent's `space-y`), so nothing is left behind while it is closed.
  */
-export function GoogleGate({ divider }: { divider: string }) {
+export function GoogleGate({ divider, returnTo }: { divider: string; returnTo?: string }) {
   const [enabled, setEnabled] = useState(false);
 
   useEffect(() => {
@@ -37,7 +37,7 @@ export function GoogleGate({ divider }: { divider: string }) {
       {/* Room around the button so the clip never cuts its shadow, without narrowing it. */}
       <div className="-mx-3 -mt-3 min-h-0 overflow-hidden px-3 pt-3">
         <div className="space-y-4 pb-6">
-          <GoogleSignInButton />
+          <GoogleSignInButton returnTo={returnTo} />
           <div className="flex items-center gap-3 text-xs text-muted">
             <span className="h-px flex-1 bg-line" />
             {divider}

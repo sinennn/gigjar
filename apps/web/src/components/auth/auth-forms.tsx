@@ -7,6 +7,7 @@ import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Field } from "@/components/ui/field";
 import { apiRequest, describeError, type FormError, type Schemas } from "@/lib/api/client";
+import { DEFAULT_RETURN } from "@/lib/return-to";
 
 const NO_ERROR: FormError = { message: "", fields: {} };
 
@@ -24,7 +25,14 @@ function useSubmit() {
       setBusy(false);
     }
   };
-  return { busy, error, run };
+  /** Shows field messages found in the browser, without calling the API. */
+  const reject = (fields: Record<string, string>) => setError({ message: "", fields });
+  return { busy, error, run, reject };
+}
+
+/** Keeps "where you were going" on the links between the log in and register pages. */
+function withReturn(path: string, returnTo: string) {
+  return returnTo === DEFAULT_RETURN ? path : `${path}?return_to=${encodeURIComponent(returnTo)}`;
 }
 
 function values(e: FormEvent<HTMLFormElement>) {
@@ -39,17 +47,25 @@ function Footer({ children }: { children: ReactNode }) {
 
 const linkClass = "font-medium text-ink underline decoration-line underline-offset-4 hover:decoration-ink";
 
-export function LoginForm() {
+export function LoginForm({ returnTo = DEFAULT_RETURN }: { returnTo?: string }) {
   const router = useRouter();
-  const { busy, error, run } = useSubmit();
+  const { busy, error, run, reject } = useSubmit();
   const onSubmit = (e: FormEvent<HTMLFormElement>) => {
     const v = values(e);
+    const email = v("email").trim();
+    const password = v("password");
+    // The API answers an empty login with the same "incorrect" message as a wrong one, which
+    // is unhelpful for a form someone simply forgot to fill in.
+    const missing: Record<string, string> = {};
+    if (!email) missing.email = "Enter your email address.";
+    if (!password) missing.password = "Enter your password.";
+    if (Object.keys(missing).length) {
+      reject(missing);
+      return;
+    }
     void run(async () => {
-      await apiRequest<Schemas["User"]>("/v1/auth/login", {
-        method: "POST",
-        body: { email: v("email"), password: v("password") },
-      });
-      router.push("/app");
+      await apiRequest<Schemas["User"]>("/v1/auth/login", { method: "POST", body: { email, password } });
+      router.push(returnTo);
       router.refresh();
     });
   };
@@ -75,7 +91,7 @@ export function LoginForm() {
       </Button>
       <Footer>
         New here?{" "}
-        <Link href="/register" className={linkClass}>
+        <Link href={withReturn("/register", returnTo)} className={linkClass}>
           Create your jar
         </Link>
       </Footer>
@@ -83,7 +99,7 @@ export function LoginForm() {
   );
 }
 
-export function RegisterForm() {
+export function RegisterForm({ returnTo = DEFAULT_RETURN }: { returnTo?: string }) {
   const router = useRouter();
   const { busy, error, run } = useSubmit();
   const onSubmit = (e: FormEvent<HTMLFormElement>) => {
@@ -91,9 +107,9 @@ export function RegisterForm() {
     void run(async () => {
       await apiRequest<Schemas["User"]>("/v1/auth/register", {
         method: "POST",
-        body: { display_name: v("display_name"), email: v("email"), password: v("password") },
+        body: { display_name: v("display_name").trim(), email: v("email").trim(), password: v("password") },
       });
-      router.push("/app");
+      router.push(returnTo);
       router.refresh();
     });
   };
@@ -125,7 +141,7 @@ export function RegisterForm() {
       </Button>
       <Footer>
         Already have a jar?{" "}
-        <Link href="/login" className={linkClass}>
+        <Link href={withReturn("/login", returnTo)} className={linkClass}>
           Log in
         </Link>
       </Footer>
@@ -139,7 +155,7 @@ export function ForgotPasswordForm() {
   const onSubmit = (e: FormEvent<HTMLFormElement>) => {
     const v = values(e);
     void run(async () => {
-      await apiRequest("/v1/auth/password/forgot", { method: "POST", body: { email: v("email") } });
+      await apiRequest("/v1/auth/password/forgot", { method: "POST", body: { email: v("email").trim() } });
       setSent(true);
     });
   };

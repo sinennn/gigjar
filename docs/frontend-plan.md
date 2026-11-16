@@ -12,7 +12,7 @@ Last updated 2026-11-15.
 | --- | --- | --- |
 | 0 | Foundations | Done |
 | 1 | Design system and landing page | Done |
-| 2 | Authentication | Built, not yet tried against a real login |
+| 2 | Authentication | Done, checked against a real API |
 | 3 | App shell and the nine signed-in screens | Built, not yet tried with real data |
 | 4 | Public payment page | Not started (still a placeholder) |
 | 5 | End-to-end check on the simulated network | Not started |
@@ -54,11 +54,11 @@ Do phases 4 and 5 next. A student can already make a link, but a client cannot y
 - [x] "Continue with Google", shown only when `GET /v1/auth/providers` says it is on, opening without a jump
 - [x] Failed Google sign-in message from `?error=`
 - [x] Signed-out visitors to `/app` go to `/login`
-- [ ] Log in, log out and reset a password against a running API and confirm the session cookie works
-- [ ] After login, honour a `return_to` so a visitor lands back where they were going
-- [ ] Rate limit and lockout messages (429 `too_many_attempts` on login, forgot-password limit)
-- [ ] Reset link with a bad or expired token (`reset_token_invalid`) shows a clear next step
-- [ ] Redirect signed-in visitors away from `/login` and `/register`
+- [x] Log in, log out and reset a password against a running API and confirm the session cookie works
+- [x] After login, honour a `return_to` so a visitor lands back where they were going (only in-app paths are accepted)
+- [x] Rate limit and lockout messages (429 `too_many_attempts` on login, forgot-password limit)
+- [x] Reset link with a bad or expired token (`reset_token_invalid`) shows a clear next step
+- [x] Redirect signed-in visitors away from `/login` and `/register`
 
 ## Phase 3: App shell and signed-in screens
 

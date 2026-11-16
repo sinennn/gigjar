@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useReducer, useState } from "react";
+import { loginUrlFor } from "@/lib/return-to";
 import { ApiError, apiRequest } from "./client";
 
 export type Page<T> = { items: T[]; next_cursor?: string | null };
@@ -11,10 +12,13 @@ function isAbort(error: unknown): boolean {
   return error instanceof DOMException && error.name === "AbortError";
 }
 
-/** A 401 anywhere in the signed-in app means the session ended: go back to the login page. */
+/**
+ * A 401 anywhere in the signed-in app means the session ended: go back to the login page, which
+ * returns here afterwards. This is a full page load on purpose, so no old data stays in memory.
+ */
 function handleFailure(error: unknown): Failure {
   if (error instanceof ApiError && error.status === 401) {
-    window.location.assign("/login");
+    window.location.assign(new URL(loginUrlFor(window.location.pathname + window.location.search), window.location.origin));
   }
   return error instanceof Error ? error : new Error("request failed");
 }

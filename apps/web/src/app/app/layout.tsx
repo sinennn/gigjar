@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
-import { redirect } from "next/navigation";
 import { Suspense } from "react";
 import { AppShell } from "@/components/app/app-shell";
+import { ToLogin } from "@/components/auth/to-login";
 import { Backdrop } from "@/components/backdrop";
 import { JarMark } from "@/components/jar-mark";
 import { getCurrentUser } from "@/lib/api/server";
@@ -20,7 +20,7 @@ export default function AppLayout({ children }: LayoutProps<"/app">) {
 async function Gate({ children }: { children: React.ReactNode }) {
   const user = await getCurrentUser();
   if (!user) {
-    redirect("/login");
+    return <ToLogin />;
   }
   return <AppShell user={user}>{children}</AppShell>;
 }
