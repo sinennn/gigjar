@@ -4,7 +4,8 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useRef, useState, type FormEvent } from "react";
 import { apiRequest, describeError, type FormError, type Schemas } from "@/lib/api/client";
-import { parseUsdtInput } from "@/lib/money";
+import { useApi, type Page } from "@/lib/api/hooks";
+import { formatUsdt, parseUsdtInput } from "@/lib/money";
 import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Field, TextArea } from "@/components/ui/field";
@@ -22,6 +23,12 @@ export function NewLinkScreen() {
   // One key per form state: a retry after a dropped connection reuses it (the API then returns the
   // original link instead of making a duplicate), and any edit starts a new one.
   const idempotencyKey = useRef<string | null>(null);
+
+  // The API matches a payment to the oldest open link with exactly that amount. A new link with the
+  // same price as an open one would therefore never get that payment, so say so before it is made.
+  const openLinks = useApi<Page<Schemas["PaymentLink"]>>("/v1/payment-links?status=open&limit=100");
+  const parsedAmount = parseUsdtInput(amount);
+  const sameAmount = parsedAmount ? openLinks.data?.items.find((link) => link.amount === parsedAmount) : undefined;
 
   const edit = (apply: () => void) => {
     idempotencyKey.current = null;
@@ -100,6 +107,13 @@ export function NewLinkScreen() {
             onChange={(e) => edit(() => setAmount(e.target.value))}
             error={error?.fields.amount}
           />
+          {sameAmount ? (
+            <Alert tone="info">
+              <strong className="font-semibold">&ldquo;{sameAmount.title}&rdquo; is also open at {formatUsdt(sameAmount.amount)}.</strong> A
+              payment of exactly this amount goes to the oldest open link first, so it would be credited to that one. Change this price by a
+              cent, or close the other link first.
+            </Alert>
+          ) : null}
           <Alert tone="warning">
             <strong className="font-semibold">USDT on TRON (TRC20) only.</strong> Clients must pay on that network. Money sent on any other
             network is lost.

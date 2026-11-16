@@ -13,12 +13,20 @@ import { Button, ButtonLink } from "@/components/ui/button";
 import { CopyButton } from "@/components/ui/copy-button";
 import { Glass } from "@/components/ui/glass";
 import { Icon } from "@/components/ui/icons";
+import { ShareButton } from "@/components/ui/share-button";
 import { EmptyState, ErrorCard, LoadingCard, PageHeader, Section } from "@/components/ui/page";
 
 type Detail = Schemas["PaymentLinkDetail"];
 
 export function LinkDetailScreen({ id }: { id: string }) {
   const { data: link, error, loading, reload } = useApi<Detail>(`/v1/payment-links/${encodeURIComponent(id)}`, { pollMs: 10_000 });
+  // A payment is only matched to this link once it confirms, so the private detail cannot see one
+  // that is still pending. The public page data can, which is how a student learns "it's on its way".
+  const publicView = useApi<Schemas["PublicPaymentInstructions"]>(
+    link ? `/v1/public/pay/${encodeURIComponent(link.reference)}` : null,
+    { pollMs: 10_000 },
+  );
+  const pendingSeen = link?.status === "open" && publicView.data?.pending_payment_observed === true;
   const [confirming, setConfirming] = useState(false);
   const [closing, setClosing] = useState(false);
   const [closeError, setCloseError] = useState<string | null>(null);
@@ -110,12 +118,24 @@ export function LinkDetailScreen({ id }: { id: string }) {
           <p className="m-0 rounded-2xl bg-paper/80 px-4 py-3 font-mono text-[14px] leading-relaxed break-all text-ink">{link.pay_url}</p>
           <div className="flex flex-wrap gap-3">
             <CopyButton value={link.pay_url} label="Copy link" />
+            <ShareButton
+              title={link.title}
+              text={`Pay ${formatUsdt(link.amount)} USDT for "${link.title}"`}
+              url={link.pay_url}
+            />
             <ButtonLink href={`/pay/${encodeURIComponent(link.reference)}`} variant="secondary" target="_blank" rel="noreferrer">
               See what your client sees <Icon name="external" className="size-4" />
             </ButtonLink>
           </div>
           <p className="m-0 text-sm text-muted">Clients pay in USDT on TRON (TRC20) only. The page tells them so.</p>
         </Glass>
+
+        {pendingSeen ? (
+          <Alert tone="warning">
+            <strong className="font-semibold">A payment is on its way.</strong> The network has seen a transfer of{" "}
+            {formatUsdt(link.amount)} for this link. It shows below once it is confirmed.
+          </Alert>
+        ) : null}
 
         <Section title="Payments for this gig">
           {link.transfers.length > 0 ? (
@@ -125,7 +145,7 @@ export function LinkDetailScreen({ id }: { id: string }) {
               ))}
             </ul>
           ) : (
-            <EmptyState title="No payments yet">
+            <EmptyState title={pendingSeen ? "Nothing confirmed yet" : "No payments yet"}>
               {link.status === "open" ? "When your client pays, it shows here once the network confirms it." : "Nothing was paid to this link."}
             </EmptyState>
           )}

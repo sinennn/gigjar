@@ -13,7 +13,8 @@ export type IconName =
   | "copy"
   | "check"
   | "external"
-  | "back";
+  | "back"
+  | "share";
 
 const PATHS: Record<IconName, ReactNode> = {
   home: <path d="M4 11 12 4l8 7v8a1 1 0 0 1-1 1h-4v-6H9v6H5a1 1 0 0 1-1-1z" />,
@@ -62,6 +63,12 @@ const PATHS: Record<IconName, ReactNode> = {
   check: <path d="m5 12.5 4.5 4.5L19 7.5" />,
   external: <path d="M14 5h5v5m0-5-8 8M18 14v4a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h4" />,
   back: <path d="M19 12H5m0 0 6-6m-6 6 6 6" />,
+  share: (
+    <>
+      <path d="M12 15V4m0 0L8 8m4-4 4 4" />
+      <path d="M6 12v6a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2v-6" />
+    </>
+  ),
 };
 
 export function Icon({ name, className = "size-5", ...rest }: { name: IconName } & SVGProps<SVGSVGElement>) {
