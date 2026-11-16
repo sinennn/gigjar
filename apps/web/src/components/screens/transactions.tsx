@@ -5,6 +5,7 @@ import type { Schemas } from "@/lib/api/client";
 import { errorText, useCursorList } from "@/lib/api/hooks";
 import { formatWhen } from "@/lib/format";
 import { formatUsdt, formatUsdtSigned, isZeroUsdt } from "@/lib/money";
+import { useGigs } from "@/components/app/jar-context";
 import { TransferRow } from "@/components/app/transfer-rows";
 import { Button } from "@/components/ui/button";
 import { Glass } from "@/components/ui/glass";
@@ -131,6 +132,7 @@ const KINDS: Record<Movement["kind"], { title: string; note: string }> = {
 
 function MovementRow({ movement }: { movement: Movement }) {
   const kind = KINDS[movement.kind];
+  const gig = useGigs().titleOfTransfer(movement.incoming_transfer_id);
   const deltas = [
     { label: "Available", value: movement.available_delta },
     { label: "Settling", value: movement.settling_delta },
@@ -141,7 +143,7 @@ function MovementRow({ movement }: { movement: Movement }) {
     <li className="flex flex-col gap-2 px-5 py-4 sm:flex-row sm:items-start sm:justify-between sm:gap-6 sm:px-6">
       <div className="min-w-0">
         <p className="m-0 text-[15px] font-semibold text-ink">{kind.title}</p>
-        <p className="m-0 text-sm text-ink-soft">{kind.note}</p>
+        <p className="m-0 text-sm text-ink-soft">{movement.kind === "deposit" && gig ? `For ${gig}` : kind.note}</p>
         <p className="m-0 mt-1 text-sm text-muted">{formatWhen(movement.created_at)}</p>
       </div>
       <ul className="m-0 flex list-none flex-wrap gap-2 p-0 sm:flex-none sm:justify-end">

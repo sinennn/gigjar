@@ -13,6 +13,10 @@ import { addUsdt, formatUsdt, isZeroUsdt, usdtRatio } from "@/lib/money";
 export function BalanceCard({ jar }: { jar: Jar }) {
   const total = addUsdt(jar.balances.available, jar.balances.pending);
   const progress = usdtRatio(jar.balances.available, jar.settlement_threshold);
+  // Pending money does not count toward the payout yet, but showing it keeps the bar from looking
+  // empty beside a total that says otherwise. It is drawn lighter, after the confirmed part.
+  const pendingShare = Math.min(usdtRatio(jar.balances.pending, jar.settlement_threshold), 1 - progress);
+  const hasPending = !isZeroUsdt(jar.balances.pending);
   const settling = !isZeroUsdt(jar.balances.settling);
   const reached = isZeroUsdt(jar.remaining_until_settlement);
   const threshold = formatUsdt(jar.settlement_threshold);
@@ -70,7 +74,20 @@ export function BalanceCard({ jar }: { jar: Jar }) {
               className="absolute inset-y-0 left-0 rounded-full bg-jar-green transition-[width] duration-700"
               style={{ width: `${Math.max(progress * 100, progress > 0 ? 2 : 0)}%` }}
             />
+            {hasPending ? (
+              <span
+                aria-hidden="true"
+                className="absolute inset-y-0 rounded-full bg-lid-orange/45 transition-[width,left] duration-700"
+                style={{ left: `${progress * 100}%`, width: `${Math.max(pendingShare * 100, 2)}%` }}
+              />
+            ) : null}
           </div>
+          {hasPending ? (
+            <p className="m-0 inline-flex items-center gap-2 text-sm text-ink-soft">
+              <span aria-hidden="true" className="size-2 rounded-full bg-lid-orange/60" />
+              {formatUsdt(jar.balances.pending)} pending. It counts toward the payout once it is confirmed.
+            </p>
+          ) : null}
           <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 text-sm">
             <p className="m-0 text-ink-soft">{status}</p>
             <p className="m-0 inline-flex items-center gap-1.5 font-medium text-ink-soft">

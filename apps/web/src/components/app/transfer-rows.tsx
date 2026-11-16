@@ -1,6 +1,7 @@
 import Link from "next/link";
 import type { Schemas } from "@/lib/api/client";
 import { StatusBadge } from "@/components/ui/badge";
+import { useGigs } from "./jar-context";
 import { Icon } from "@/components/ui/icons";
 import { describeFailure, explorerTxUrl, formatWhen, shorten } from "@/lib/format";
 import { formatUsdt } from "@/lib/money";
@@ -12,6 +13,9 @@ type Settlement = Schemas["Settlement"];
 export function TransferRow({ transfer, showLink = false }: { transfer: Transfer; showLink?: boolean }) {
   const explorer = explorerTxUrl(transfer.network, transfer.tx_hash);
   const confirmed = transfer.status === "confirmed";
+  // A transfer is matched to a gig only once it confirms, so a pending one is just "incoming".
+  const gig = useGigs().titleOf(transfer.payment_link_id);
+  const headline = gig ?? (confirmed && !transfer.payment_link_id ? "Payment not matched to a link" : "Incoming payment");
   return (
     <li className="flex flex-col gap-2 px-5 py-4 sm:px-6">
       <div className="flex items-start justify-between gap-3">
@@ -25,10 +29,10 @@ export function TransferRow({ transfer, showLink = false }: { transfer: Transfer
             <Icon name="send" className="size-[18px] rotate-90" />
           </span>
           <div className="min-w-0">
-            <p className="m-0 truncate text-[15px] font-semibold text-ink" title={transfer.from_address}>
-              From {shorten(transfer.from_address, 5, 5)}
+            <p className="m-0 truncate text-[15px] font-semibold text-ink">{headline}</p>
+            <p className="m-0 truncate text-sm text-muted" title={`From ${transfer.from_address}`}>
+              {formatWhen(transfer.confirmed_at ?? transfer.observed_at)} · from {shorten(transfer.from_address, 4, 4)}
             </p>
-            <p className="m-0 text-sm text-muted">{formatWhen(transfer.confirmed_at ?? transfer.observed_at)}</p>
           </div>
         </div>
         <div className="flex flex-none flex-col items-end gap-1.5">
@@ -74,7 +78,7 @@ export function TransferRow({ transfer, showLink = false }: { transfer: Transfer
 export function SettlementCard({ settlement }: { settlement: Settlement }) {
   const explorer = settlement.tx_id ? explorerTxUrl(settlement.network, settlement.tx_id) : null;
   return (
-    <li className="flex flex-col gap-4 px-5 py-5 sm:px-6">
+    <li className="@container flex flex-col gap-4 px-5 py-5 sm:px-6">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <p className="m-0 text-sm text-muted">{formatWhen(settlement.created_at)}</p>
@@ -86,7 +90,8 @@ export function SettlementCard({ settlement }: { settlement: Settlement }) {
         <StatusBadge status={settlement.state} kind="settlement" />
       </div>
 
-      <dl className="m-0 grid grid-cols-2 gap-x-4 gap-y-3 text-sm sm:grid-cols-4">
+      {/* Two columns in a narrow card (the overview), four in a wide one (the payouts page). */}
+      <dl className="m-0 grid grid-cols-2 gap-x-4 gap-y-3 text-sm @lg:grid-cols-4">
         <Detail label="Taken from jar" value={formatUsdt(settlement.amount)} />
         <Detail label="Fee" value={formatUsdt(settlement.fee)} />
         <Detail label="Sent to" value={shorten(settlement.destination_address, 5, 5)} title={settlement.destination_address} mono />
