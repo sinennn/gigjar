@@ -73,3 +73,22 @@ export function parseUsdtInput(text: string): UsdtAmount | null {
   const amount = `${match[1]}.${(match[2] ?? "").padEnd(6, "0")}`;
   return toMicros(amount) > 0n ? amount : null;
 }
+
+/** "1,234.50" for an amount, without the dollar sign. For places that print "USDT" beside it. */
+export function formatUsdtNumber(amount: UsdtAmount): string {
+  return formatUsdt(amount).replace("$", "");
+}
+
+/**
+ * The amount as someone would type it into a wallet: "5", "5.25", "0.123456". No symbol and no
+ * thousands separators, so it pastes straight into a send form.
+ */
+export function plainUsdt(amount: UsdtAmount): string {
+  const match = USDT_AMOUNT_PATTERN.exec(amount);
+  if (!match) {
+    throw new Error(`invalid USDT amount: ${amount}`);
+  }
+  const [, sign, whole, fraction] = match;
+  const trimmed = fraction.replace(/0+$/, "");
+  return trimmed ? `${sign}${whole}.${trimmed}` : `${sign}${whole}`;
+}

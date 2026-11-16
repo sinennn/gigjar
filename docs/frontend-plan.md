@@ -14,7 +14,7 @@ Last updated 2026-11-15.
 | 1 | Design system and landing page | Done |
 | 2 | Authentication | Done, checked against a real API |
 | 3 | App shell and the nine signed-in screens | Done, checked with real data |
-| 4 | Public payment page | Not started (still a placeholder) |
+| 4 | Public payment page | Done, checked with real data (per-link share image still open) |
 | 5 | End-to-end check on the simulated network | Not started |
 | 6 | AI features | Not started (API is ready) |
 | 7 | Polish: loading, empty and error states, accessibility | Not started |
@@ -32,6 +32,7 @@ Do phases 4 and 5 next. A student can already make a link, but a client cannot y
 - [x] Money helpers: USDT amounts are strings with six decimals, never `number`
 - [x] Cloudflare Workers build through Open Next, served at https://gigjar.pages.dev
 - [x] Prerendered pages served from the static-assets cache (fixed the 500s)
+- [x] A sleeping or restarting API is waited out instead of showing "request failed with status 502": the proxy and the session check retry gateway errors, messages are plain words, forms say "still working", and the app shows a "GigJar is waking up" screen
 
 ## Phase 1: Design system and landing page
 
@@ -88,18 +89,19 @@ All routes are under `/app`. Old paths such as `/dashboard` and `/links` redirec
 
 The page a client opens from a shared link: `/pay/[reference]`, no login. It is still the placeholder `ScreenScaffold`. Fields come from `GET /v1/public/pay/{reference}`.
 
-- [ ] Fetch on the server; unknown link (404) shows a friendly not-found page
-- [ ] Jar not ready (503 `jar_not_ready`) shows "not ready to receive payments"
-- [ ] Gig title, description, amount, and the recipient's display name
-- [ ] Pay-to address with a copy button and a QR code
-- [ ] Prominent "USDT on TRON (TRC20) only; other networks are lost" next to the address
-- [ ] "Send exactly this amount" note, with the amount copyable
-- [ ] USDT contract address for verification (hidden on the simulated network, where it is null)
-- [ ] Live status: poll while `pending_payment_observed`, then show confirmed and paid states
-- [ ] Paid and closed links show a clear finished state instead of payment details
-- [ ] "Simulated" badge when the network is simulated
-- [ ] Designed for a phone first, since clients open this from a chat
-- [ ] Per-link share preview (gig title and amount). Read files only while drawing the card, never at module load, because Cloudflare Workers have no disk
+- [x] Fetch on the server; unknown link (404) shows a friendly not-found page
+- [x] Jar not ready (503 `jar_not_ready`) shows "not ready to receive payments"
+- [x] Gig title, description, amount, and the recipient's display name
+- [x] Pay-to address with a copy button and a QR code
+- [x] Prominent "USDT on TRON (TRC20) only; other networks are lost" next to the address
+- [x] "Send exactly this amount" note, with the amount copyable
+- [x] USDT contract address for verification (hidden on the simulated network, where it is null)
+- [x] Live status: poll while `pending_payment_observed`, then show confirmed and paid states
+- [x] Paid and closed links show a clear finished state instead of payment details
+- [x] "Simulated" badge when the network is simulated
+- [x] Designed for a phone first, since clients open this from a chat
+- [x] Per-link share text (gig title, amount and recipient in the title and description)
+- [ ] Per-link share image. The generic card is used for now. A per-link image has to bundle its fonts and artwork into the Worker instead of reading files from disk, because Cloudflare Workers have no disk
 
 ## Phase 5: End-to-end check on the simulated network
 
@@ -128,7 +130,7 @@ The API is ready (`/v1/ai/*`); the web app does not use it yet. Show these only 
 - [ ] Loading skeletons for every screen (`loading.tsx` or in-page), so nothing is blank while the API wakes up
 - [ ] Empty states: no links yet, no payments yet, no payouts yet, each with a next step
 - [ ] Error states with a retry, and the request id shown for support
-- [ ] A branded 404 page and a global error page
+- [ ] A branded site-wide 404 page (done so far: the payment link 404, a root error page, and the "waking up" screens)
 - [ ] Keyboard and screen reader pass on every screen: focus order, labels, live regions for status changes
 - [ ] Contrast pass on glass over the coloured shapes behind it
 - [ ] Reduced motion pass: nothing important depends on animation
